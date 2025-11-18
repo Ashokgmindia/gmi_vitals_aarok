@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -76,7 +76,34 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
 }
 
 function Router() {
-  const authToken = localStorage.getItem("authToken");
+  const [authToken, setAuthToken] = useState<string | null>(() => 
+    localStorage.getItem("authToken")
+  );
+  const [userRole, setUserRole] = useState<string | null>(() => 
+    localStorage.getItem("userRole")
+  );
+
+  // Sync auth state with localStorage changes
+  useEffect(() => {
+    const updateAuthState = () => {
+      setAuthToken(localStorage.getItem("authToken"));
+      setUserRole(localStorage.getItem("userRole"));
+    };
+
+    // Initial check
+    updateAuthState();
+
+    // Listen for storage events (when localStorage changes in other tabs/windows)
+    window.addEventListener("storage", updateAuthState);
+
+    // Listen for custom auth state change event (for same-tab changes)
+    window.addEventListener("authStateChanged", updateAuthState);
+
+    return () => {
+      window.removeEventListener("storage", updateAuthState);
+      window.removeEventListener("authStateChanged", updateAuthState);
+    };
+  }, []);
 
   return (
     <Switch>
@@ -127,7 +154,7 @@ function Router() {
       
       {/* Protected Admin Route */}
       <Route path="/admin">
-        {authToken && localStorage.getItem("userRole") === "admin" ? (
+        {authToken && userRole === "admin" ? (
           <AuthenticatedLayout>
             <AdminPage />
           </AuthenticatedLayout>

@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, loginSchema, insertEcgDataSchema, insertPatientRecordSchema } from "@shared/schema";
+import { insertUserSchema, loginSchema, insertEcgDataSchema, insertPatientRecordSchema, type InsertEcgData } from "@shared/schema";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
@@ -237,6 +237,167 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(data);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  // ESP32 Vitals endpoint (public endpoint for device data)
+  app.post("/api/vitals", async (req: Request, res: Response) => {
+    try {
+      const data = req.body;
+      
+      // Extract device_id and data_type
+      const device_id = data.device_id;
+      const data_type = data.data_type;
+
+      // Validate required fields
+      if (!device_id || !data_type) {
+        return res.status(400).json({ message: "Missing required fields: device_id and data_type" });
+      }
+
+      // Map device_id to userId (for now, we'll use a default or find/create a user)
+      // In production, you'd have a device-to-user mapping table
+      // For now, we'll try to find a user or use the first patient user
+      const allUsers = await storage.getAllUsers();
+      let targetUserId: string | undefined;
+
+      // Try to find a patient user (prefer first patient over admin)
+      const patientUser = allUsers.find((u) => u.role === "patient");
+      if (patientUser) {
+        targetUserId = patientUser.id;
+      } else if (allUsers.length > 0) {
+        // Fallback to first user if no patient found
+        targetUserId = allUsers[0].id;
+      } else {
+        return res.status(404).json({ message: "No user found to associate device data with" });
+      }
+
+      // Get latest ECG data for this user to update it
+      const latestData = await storage.getLatestEcgDataByUserId(targetUserId);
+
+      // Prepare data based on data_type
+      let ecgDataToStore: InsertEcgData;
+      let responseTemperature: number | undefined;
+      let responseSpo2: number | undefined;
+      let responseHeartRate: number | undefined;
+
+      if (data_type === "temperature") {
+        // Temperature data - accept both "temperature" and "temperature_c" field names
+        const temperature = data.temperature !== undefined ? data.temperature : data.temperature_c;
+        
+        if (temperature === undefined) {
+          return res.status(400).json({ 
+            message: "Missing temperature field for temperature data_type" 
+          });
+        }
+
+        responseTemperature = parseFloat(temperature);
+
+        ecgDataToStore = {
+          userId: targetUserId,
+          recordId: latestData?.recordId || null,
+          heartRate: latestData?.heartRate || 70,
+          spo2: latestData?.spo2 || 98,
+          systolicBP: latestData?.systolicBP || 120,
+          diastolicBP: latestData?.diastolicBP || 80,
+          temperature: responseTemperature,
+          respiratoryRate: latestData?.respiratoryRate || 20,
+          plethWaveform: latestData?.plethWaveform || null,
+          spo2Waveform: latestData?.spo2Waveform || null,
+          respWaveform: latestData?.respWaveform || null,
+          cvpArtWaveform: latestData?.cvpArtWaveform || null,
+          ecgOxpWaveform: latestData?.ecgOxpWaveform || null,
+          etco2Waveform: latestData?.etco2Waveform || null,
+        };
+      } else if (data_type === "vitals") {
+        // Vitals data - accept both standard and ESP32 field names
+        // Accept: spo2 or max_spo2_percent
+        // Accept: heart_rate or max_heart_rate_bpm
+        const spo2 = data.spo2 !== undefined ? data.spo2 : 
+                     (data.max_spo2_percent !== undefined ? data.max_spo2_percent : undefined);
+        const heart_rate = data.heart_rate !== undefined ? data.heart_rate : 
+                          (data.max_heart_rate_bpm !== undefined ? data.max_heart_rate_bpm : undefined);
+        
+        if (spo2 === undefined && heart_rate === undefined) {
+          return res.status(400).json({ 
+            message: "Missing spo2 or heart_rate field for vitals data_type" 
+          });
+        }
+
+        responseSpo2 = spo2 !== undefined ? parseFloat(String(spo2)) : undefined;
+        responseHeartRate = heart_rate !== undefined ? parseInt(String(heart_rate)) : undefined;
+
+        ecgDataToStore = {
+          userId: targetUserId,
+          recordId: latestData?.recordId || null,
+          heartRate: responseHeartRate !== undefined ? responseHeartRate : (latestData?.heartRate || 70),
+          spo2: responseSpo2 !== undefined ? Math.round(responseSpo2) : (latestData?.spo2 || 98),
+          systolicBP: latestData?.systolicBP || 120,
+          diastolicBP: latestData?.diastolicBP || 80,
+          temperature: latestData?.temperature || 37.0,
+          respiratoryRate: latestData?.respiratoryRate || 20,
+          plethWaveform: latestData?.plethWaveform || null,
+          spo2Waveform: latestData?.spo2Waveform || null,
+          respWaveform: latestData?.respWaveform || null,
+          cvpArtWaveform: latestData?.cvpArtWaveform || null,
+          ecgOxpWaveform: latestData?.ecgOxpWaveform || null,
+          etco2Waveform: latestData?.etco2Waveform || null,
+        };
+      } else {
+        return res.status(400).json({ 
+          message: `Invalid data_type: ${data_type}. Expected 'temperature' or 'vitals'` 
+        });
+      }
+
+      // Create new ECG data entry
+      const createdData = await storage.createEcgData(ecgDataToStore);
+
+      res.status(201).json({
+        success: true,
+        message: `Successfully stored ${data_type} data`,
+        data: {
+          id: createdData.id,
+          data_type,
+          device_id,
+          ...(responseTemperature !== undefined && { temperature: responseTemperature }),
+          ...(responseSpo2 !== undefined && { spo2: responseSpo2 }),
+          ...(responseHeartRate !== undefined && { heart_rate: responseHeartRate }),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error processing vitals data:", error);
+      res.status(500).json({ message: error.message || "Failed to process vitals data" });
+    }
+  });
+
+  // Get latest ESP32 vitals data (for dashboard - returns latest regardless of user)
+  app.get("/api/vitals/latest", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      // Get all ECG data and find the most recent one
+      const allEcgData = await storage.getAllEcgData();
+      
+      if (allEcgData.length === 0) {
+        return res.status(404).json({ message: "No ECG data found" });
+      }
+
+      // Sort by timestamp descending and get the latest
+      const latestData = allEcgData.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      )[0];
+
+      // Check if user has access (patients can only see their own, admins can see all)
+      if (req.userRole !== "admin" && req.userId && latestData.userId !== req.userId) {
+        // For patients, try to find their own latest data instead
+        const userLatestData = await storage.getLatestEcgDataByUserId(req.userId);
+        if (!userLatestData) {
+          return res.status(404).json({ message: "No ECG data found" });
+        }
+        return res.json(userLatestData);
+      }
+
+      res.json(latestData);
+    } catch (error: any) {
+      console.error("Error fetching latest vitals data:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch latest vitals data" });
     }
   });
 

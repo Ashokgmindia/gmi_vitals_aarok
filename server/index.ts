@@ -9,12 +9,44 @@ declare module 'http' {
     rawBody: unknown
   }
 }
+
+// Production security headers
+if (process.env.NODE_ENV === "production") {
+  app.use((req, res, next) => {
+    // Security headers
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-XSS-Protection", "1; mode=block");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    
+    // Remove X-Powered-By header
+    res.removeHeader("X-Powered-By");
+    
+    // Content Security Policy for production
+    if (!req.path.startsWith("/api")) {
+      res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;"
+      );
+    }
+    
+    next();
+  });
+}
+
+// Trust proxy if behind reverse proxy (EasyPanel, Cloudflare, etc.)
+if (process.env.TRUST_PROXY === "true") {
+  app.set("trust proxy", 1);
+}
+
+// Body parsing with size limits
 app.use(express.json({
+  limit: "10mb",
   verify: (req, _res, buf) => {
     req.rawBody = buf;
   }
 }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -46,44 +78,103 @@ app.use((req, res, next) => {
   next();
 });
 
+// Health check endpoint (before other routes)
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || "development",
+  });
+});
+
+// Readiness check endpoint
+app.get("/ready", (_req: Request, res: Response) => {
+  // Add any readiness checks here (database connection, etc.)
+  res.status(200).json({
+    status: "ready",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    const httpServer = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // Production error handler - don't expose stack traces
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const isDevelopment = process.env.NODE_ENV === "development";
+      
+      // Log error details
+      log(`Error ${status}: ${err.message}${isDevelopment ? `\n${err.stack}` : ""}`, "error");
 
-    res.status(status).json({ message });
-    throw err;
-  });
+      // Don't expose internal errors in production
+      const message = isDevelopment 
+        ? err.message 
+        : status >= 500 
+          ? "Internal Server Error" 
+          : err.message;
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+      res.status(status).json({ 
+        message,
+        ...(isDevelopment && { stack: err.stack })
+      });
+    });
+
+    // Setup vite in development, serve static files in production
+    if (process.env.NODE_ENV === "development") {
+      await setupVite(app, httpServer);
+    } else {
+      serveStatic(app);
+    }
+
+    // Start server
+    const port = parseInt(process.env.PORT || '5000', 10);
+    
+    httpServer.listen(port, "0.0.0.0", () => {
+      log(`🚀 Server running on port ${port} in ${process.env.NODE_ENV || "development"} mode`);
+      log(`📊 Health check available at /health`);
+      log(`✅ Readiness check available at /ready`);
+    });
+
+    // Graceful shutdown handling
+    const gracefulShutdown = (signal: string) => {
+      log(`Received ${signal}, starting graceful shutdown...`);
+      
+      httpServer.close(() => {
+        log("HTTP server closed");
+        process.exit(0);
+      });
+
+      // Force close after 10 seconds
+      setTimeout(() => {
+        log("Forced shutdown after timeout");
+        process.exit(1);
+      }, 10000);
+    };
+
+    process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+    process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+    // Handle uncaught exceptions
+    process.on("uncaughtException", (err) => {
+      log(`Uncaught Exception: ${err.message}`, "error");
+      log(err.stack || "", "error");
+      gracefulShutdown("uncaughtException");
+    });
+
+    // Handle unhandled promise rejections
+    process.on("unhandledRejection", (reason, promise) => {
+      log(`Unhandled Rejection at: ${promise}, reason: ${reason}`, "error");
+      gracefulShutdown("unhandledRejection");
+    });
+
+  } catch (error) {
+    log(`Failed to start server: ${error instanceof Error ? error.message : String(error)}`, "error");
+    if (error instanceof Error && error.stack) {
+      log(error.stack, "error");
+    }
+    process.exit(1);
   }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  const listenOptions: any = {
-    port,
-    host: "0.0.0.0",
-  };
-
-  // `reusePort` maps to SO_REUSEPORT which is not supported on some platforms
-  // (notably Windows). Avoid setting it on unsupported platforms to prevent
-  // an ENOTSUP error when calling `listen`.
-  if (process.platform !== "win32") {
-    listenOptions.reusePort = true;
-  }
-
-  server.listen(listenOptions, () => {
-    log(`serving on port ${port}`);
-  });
 })();
