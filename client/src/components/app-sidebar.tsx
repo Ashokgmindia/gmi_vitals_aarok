@@ -1,4 +1,4 @@
-import { Activity, LayoutDashboard, LineChart, User, Settings, LogOut, Brain } from "lucide-react";
+import { LayoutDashboard, LineChart, User, Settings, LogOut, Brain, Activity } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -69,9 +69,17 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2 text-base py-4">
-            <Activity className="h-5 w-5" />
-            Health Monitor
+          <SidebarGroupLabel className="flex items-center justify-center py-4">
+            <img 
+              src="/white.png" 
+              alt="AAROK AI Logo" 
+              className="h-8 w-auto dark:hidden"
+            />
+            <img 
+              src="/black.png" 
+              alt="AAROK AI Logo" 
+              className="h-8 w-auto hidden dark:block"
+            />
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
