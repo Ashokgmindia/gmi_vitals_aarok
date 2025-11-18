@@ -26,8 +26,8 @@ export function VitalSignCard({ icon: Icon, label, value, unit, color, trend }: 
         </span>
         <Icon className={`h-5 w-5 ${colorClasses[color]}`} />
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className={`text-5xl font-bold font-mono ${colorClasses[color]}`} data-testid={`text-value-${label.toLowerCase()}`}>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className={`text-5xl font-bold font-mono ${colorClasses[color]} leading-tight`} data-testid={`text-value-${label.toLowerCase()}`}>
           {value}
         </span>
         <span className={`text-xl font-semibold ${colorClasses[color]} opacity-80`}>

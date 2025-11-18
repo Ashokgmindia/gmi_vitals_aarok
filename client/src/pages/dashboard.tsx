@@ -135,7 +135,7 @@ export default function DashboardPage() {
         <VitalSignCard
           icon={Thermometer}
           label="Temperature"
-          value={ecgData.temperature}
+          value={typeof ecgData.temperature === 'number' ? ecgData.temperature.toFixed(1) : parseFloat(ecgData.temperature.toString()).toFixed(1)}
           unit="°C"
           color="red"
           trend="stable"
