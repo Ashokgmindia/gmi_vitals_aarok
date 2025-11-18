@@ -63,11 +63,25 @@ export default function DashboardPage() {
     etco2: generateWaveform("etco2"),
   });
 
-  const { data: latestEcg, isLoading } = useQuery<EcgData>({
+  // Try to get latest ECG data from user's own data
+  const { data: latestEcg, isLoading: isLoadingUser, error: userError } = useQuery<EcgData>({
     queryKey: [`/api/ecg-data/latest/${userId}`],
     enabled: !!userId,
     refetchInterval: 2000, // Refresh every 2 seconds to show latest ESP32 data
+    retry: false, // Don't retry on 404, we'll use fallback
   });
+
+  // Fallback: Get latest ESP32 data (works for all users, shows latest from any patient)
+  const { data: latestVitalsData, isLoading: isLoadingVitals } = useQuery<EcgData>({
+    queryKey: [`/api/vitals/latest`],
+    enabled: !!userId, // Always enabled when user is logged in
+    refetchInterval: 2000,
+    retry: false,
+  });
+
+  // Use user's own data if available, otherwise fallback to latest ESP32 data
+  const displayData = latestEcg || latestVitalsData;
+  const isLoading = isLoadingUser || isLoadingVitals;
 
   // Simulate real-time waveform updates
   useEffect(() => {
@@ -98,7 +112,7 @@ export default function DashboardPage() {
     );
   }
 
-  const ecgData = latestEcg || {
+  const ecgData = displayData || {
     heartRate: 60,
     spo2: 98,
     systolicBP: 120,

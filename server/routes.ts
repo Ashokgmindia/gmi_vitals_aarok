@@ -369,6 +369,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get latest ESP32 vitals data (for dashboard - returns latest regardless of user)
+  app.get("/api/vitals/latest", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      // Get all ECG data and find the most recent one
+      const allEcgData = await storage.getAllEcgData();
+      
+      if (allEcgData.length === 0) {
+        return res.status(404).json({ message: "No ECG data found" });
+      }
+
+      // Sort by timestamp descending and get the latest
+      const latestData = allEcgData.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      )[0];
+
+      // Check if user has access (patients can only see their own, admins can see all)
+      if (req.userRole !== "admin" && req.userId && latestData.userId !== req.userId) {
+        // For patients, try to find their own latest data instead
+        const userLatestData = await storage.getLatestEcgDataByUserId(req.userId);
+        if (!userLatestData) {
+          return res.status(404).json({ message: "No ECG data found" });
+        }
+        return res.json(userLatestData);
+      }
+
+      res.json(latestData);
+    } catch (error: any) {
+      console.error("Error fetching latest vitals data:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch latest vitals data" });
+    }
+  });
+
   // Admin routes
   app.get("/api/admin/users", authenticateToken, requireAdmin, async (req: AuthRequest, res: Response) => {
     try {
