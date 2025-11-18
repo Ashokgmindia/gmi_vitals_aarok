@@ -457,11 +457,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Check for Gemini API key
-      const geminiApiKey = process.env.GEMINI_API_KEY;
-      if (!geminiApiKey) {
+      // WARNING: Hardcoded API key - This is a security risk in production!
+      // In production, use environment variables instead
+      const geminiApiKey = process.env.GEMINI_API_KEY || "AIzaSyA6QbVyb0TfiKq6EYGmnY3-bWYvkeiYt_0";
+      
+      if (!geminiApiKey || geminiApiKey.trim() === "") {
         return res.status(500).json({ 
-          message: "AI Analysis service is not configured. Please contact your administrator." 
+          message: "AI Analysis service is not configured. Please set GEMINI_API_KEY environment variable." 
         });
       }
 
@@ -555,36 +557,12 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
       // Initialize Gemini AI
       const genAI = new GoogleGenerativeAI(geminiApiKey);
       
-      // Try gemini-2.5-flash first, fallback to gemini-1.5-flash if not available
-      const modelNames = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
-      let model;
-      let result;
-      let lastError: any = null;
+      // Use gemini-2.5-pro model
+      console.log("Using model: gemini-2.5-pro");
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
       
-      for (const modelName of modelNames) {
-        try {
-          console.log(`Attempting to use model: ${modelName}`);
-          model = genAI.getGenerativeModel({ model: modelName });
-          result = await model.generateContent(prompt);
-          console.log(`Successfully using model: ${modelName}`);
-          break; // Success, exit loop
-        } catch (modelError: any) {
-          console.error(`Failed to use model ${modelName}:`, {
-            message: modelError.message,
-            status: modelError.status,
-            statusText: modelError.statusText,
-          });
-          lastError = modelError;
-          // Continue to next model
-        }
-      }
-      
-      // If all models failed, throw the last error
-      if (!result) {
-        console.error("All model attempts failed. Last error:", lastError);
-        throw lastError || new Error("Failed to generate content with any available model");
-      }
-      
+      // Generate analysis
+      const result = await model.generateContent(prompt);
       const response = await result.response;
       const healthReport = response.text();
 
