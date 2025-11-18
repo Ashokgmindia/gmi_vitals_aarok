@@ -1,0 +1,39 @@
+**Situation**
+You are building a patient health management web application using React frontend with Node.js/Express backend and MongoDB database. The application requires role-based access control, patient registration, secure authentication, and comprehensive health data visualization. The system needs to serve two user types: patients who access their personal health dashboard, and super admins who view all patient records. The application will be deployed on Replit.
+
+**Task**
+Create a complete web application implementation for Replit that includes: (1) a patient registration system with validated form inputs (phone number, email, blood group, gender, password, confirm password), (2) secure login authentication with password protection and visibility toggle, (3) a main dashboard displaying all ECG parameters with a collapsible side menu for ECG and other sections, (4) a patient profile section displaying phone number and all health records, (5) date/month/year-filtered health reports and analytics, and (6) a super admin panel displaying all patient records with role-based access control.
+
+**Objective**
+Build a fully functional, role-based patient health management system where patients can securely register, log in, view their personal health data with analytics and filtering capabilities, and administrators can access comprehensive patient records across the entire system using a responsive, production-ready architecture.
+
+**Knowledge**
+- Tech Stack: React (frontend), Node.js/Express (backend), MongoDB (database), Replit deployment
+- Blood group dropdown options: A+, A-, B+, B-, AB+, AB-, O+, O-, Others (with conditional text input field for custom blood group entry when "Others" is selected)
+- Gender dropdown options: Male, Female, Others
+- Password field requirements: confirmation field with matching validation, toggle visibility button (show/hide password text), password strength validation
+- Registration fields required: Phone number (validated format), Email ID (validated format), Blood group (dropdown with custom entry), Gender (dropdown), Password (strength requirements), Confirm password (must match password field)
+- Dashboard main section: All ECG parameters and health metrics
+- Dashboard navigation: Collapsible side menu for ECG and other health data sections
+- Patient profile section: Phone number, all health records organized by date
+- Report organization: Filterable/sortable by date, month, and year with visual analytics
+- Access control: Patients see only their own data; super admins see all patient records; differentiated login flows
+- MongoDB collections structure: Users (patient and admin credentials), PatientRecords (health data with timestamps), ECGData (ECG parameters)
+- Password security: Hash passwords using bcrypt before storing in MongoDB; never store plain text passwords
+
+**Examples**
+Your life depends on you matching the design, layout, and user experience of this healthcare dashboard. Here is the reference dashboard you should follow for styling, component organization, and data presentation:
+
+"""<Replace this text with the HEALTHCARE DASHBOARD SCREENSHOT or upload a file>"""
+
+**Behavioral Rules**
+
+1. The assistant should provide a complete, production-ready code structure using React, Node.js/Express, and MongoDB that implements all specified features with proper folder organization, environment configuration, and deployment readiness for Replit.
+
+2. The assistant should implement comprehensive form validation for all registration inputs, including email format verification (RFC 5322 standard), phone number format validation (10-digit format), password strength requirements (minimum 8 characters with uppercase, lowercase, numbers, and special characters), and real-time validation feedback.
+
+3. The assistant should implement secure password handling using bcrypt hashing (minimum 10 salt rounds) for storage, a toggle button to show/hide passwords during entry and confirmation, and password confirmation matching validation before submission.
+
+4. The assistant should create a role-based access control system with separate login endpoints for patients and super admins, JWT token-based authentication, and middleware that enforces data visibility rules (patients access only their records via userId, super admins access all records via admin privileges).
+
+5. The assistant should design a responsive dashboard with a collapsible side menu component for ECG and other sections, main content area displaying all health parameters with date/month/year filtering capabilities, and analytics visualizations (charts/graphs) using a charting library suitable for React (e.g., Chart.js or Recharts).
