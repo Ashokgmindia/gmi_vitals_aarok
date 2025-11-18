@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Heart, Droplet, Wind, Thermometer } from "lucide-react";
+import { Heart, Droplet, Wind, Thermometer, TrendingUp } from "lucide-react";
 import { VitalSignCard } from "@/components/vital-sign-card";
 import { ECGWaveform } from "@/components/ecg-waveform";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import type { EcgData } from "@shared/schema";
 
 // Generate realistic ECG waveform data
@@ -59,6 +60,7 @@ export default function DashboardPage() {
   const { data: latestEcg, isLoading } = useQuery<EcgData>({
     queryKey: [`/api/ecg-data/latest/${userId}`],
     enabled: !!userId,
+    refetchInterval: 2000, // Refresh every 2 seconds to show latest ESP32 data
   });
 
   // Simulate real-time waveform updates
@@ -102,8 +104,14 @@ export default function DashboardPage() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold text-foreground mb-2">Medical Dashboard</h1>
-        <p className="text-muted-foreground">Real-time patient vital signs monitoring</p>
+        <div className="flex items-center gap-3 mb-2">
+          <h1 className="text-3xl font-bold text-foreground">Medical Dashboard</h1>
+          <Badge variant="outline" className="flex items-center gap-1">
+            <TrendingUp className="h-3 w-3" />
+            Max Values (5s Sampling)
+          </Badge>
+        </div>
+        <p className="text-muted-foreground">Real-time patient vital signs monitoring from ESP32 sensors</p>
       </div>
 
       {/* Vital Signs Grid */}
@@ -135,7 +143,7 @@ export default function DashboardPage() {
         <VitalSignCard
           icon={Thermometer}
           label="Temperature"
-          value={typeof ecgData.temperature === 'number' ? ecgData.temperature.toFixed(1) : parseFloat(ecgData.temperature.toString()).toFixed(1)}
+          value={typeof ecgData.temperature === 'number' ? ecgData.temperature.toFixed(1) : String(ecgData.temperature)}
           unit="°C"
           color="red"
           trend="stable"

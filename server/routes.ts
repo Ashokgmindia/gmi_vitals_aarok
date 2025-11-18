@@ -1,7 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, loginSchema, insertEcgDataSchema, insertPatientRecordSchema } from "@shared/schema";
+import { insertUserSchema, loginSchema, insertEcgDataSchema, insertPatientRecordSchema, type InsertEcgData } from "@shared/schema";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
@@ -237,6 +237,103 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(data);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  // ESP32 Vitals endpoint (public endpoint for device data)
+  app.post("/api/vitals", async (req: Request, res: Response) => {
+    try {
+      const data = req.body;
+      const { device_id, data_type, temperature, spo2, heart_rate, timestamp } = data;
+
+      // Validate required fields
+      if (!device_id || !data_type) {
+        return res.status(400).json({ message: "Missing required fields: device_id and data_type" });
+      }
+
+      // Map device_id to userId (for now, we'll use a default or find/create a user)
+      // In production, you'd have a device-to-user mapping table
+      // For now, we'll try to find a user or use the first patient user
+      const allUsers = await storage.getAllUsers();
+      let targetUserId: string | undefined;
+
+      // Try to find a patient user (prefer first patient over admin)
+      const patientUser = allUsers.find((u) => u.role === "patient");
+      if (patientUser) {
+        targetUserId = patientUser.id;
+      } else if (allUsers.length > 0) {
+        // Fallback to first user if no patient found
+        targetUserId = allUsers[0].id;
+      } else {
+        return res.status(404).json({ message: "No user found to associate device data with" });
+      }
+
+      // Get latest ECG data for this user to update it
+      const latestData = await storage.getLatestEcgDataByUserId(targetUserId);
+
+      // Prepare data based on data_type
+      let ecgDataToStore: InsertEcgData;
+
+      if (data_type === "temperature" && temperature !== undefined) {
+        // Temperature data
+        ecgDataToStore = {
+          userId: targetUserId,
+          recordId: latestData?.recordId || null,
+          heartRate: latestData?.heartRate || 70,
+          spo2: latestData?.spo2 || 98,
+          systolicBP: latestData?.systolicBP || 120,
+          diastolicBP: latestData?.diastolicBP || 80,
+          temperature: parseFloat(temperature),
+          respiratoryRate: latestData?.respiratoryRate || 20,
+          plethWaveform: latestData?.plethWaveform || null,
+          spo2Waveform: latestData?.spo2Waveform || null,
+          respWaveform: latestData?.respWaveform || null,
+          cvpArtWaveform: latestData?.cvpArtWaveform || null,
+          ecgOxpWaveform: latestData?.ecgOxpWaveform || null,
+          etco2Waveform: latestData?.etco2Waveform || null,
+        };
+      } else if (data_type === "vitals" && (spo2 !== undefined || heart_rate !== undefined)) {
+        // Vitals data (SpO2 and/or Heart Rate)
+        ecgDataToStore = {
+          userId: targetUserId,
+          recordId: latestData?.recordId || null,
+          heartRate: heart_rate !== undefined ? parseInt(heart_rate) : (latestData?.heartRate || 70),
+          spo2: spo2 !== undefined ? parseInt(spo2) : (latestData?.spo2 || 98),
+          systolicBP: latestData?.systolicBP || 120,
+          diastolicBP: latestData?.diastolicBP || 80,
+          temperature: latestData?.temperature || 37.0,
+          respiratoryRate: latestData?.respiratoryRate || 20,
+          plethWaveform: latestData?.plethWaveform || null,
+          spo2Waveform: latestData?.spo2Waveform || null,
+          respWaveform: latestData?.respWaveform || null,
+          cvpArtWaveform: latestData?.cvpArtWaveform || null,
+          ecgOxpWaveform: latestData?.ecgOxpWaveform || null,
+          etco2Waveform: latestData?.etco2Waveform || null,
+        };
+      } else {
+        return res.status(400).json({ 
+          message: `Invalid data_type or missing required fields for ${data_type}` 
+        });
+      }
+
+      // Create new ECG data entry
+      const createdData = await storage.createEcgData(ecgDataToStore);
+
+      res.status(201).json({
+        success: true,
+        message: `Successfully stored ${data_type} data`,
+        data: {
+          id: createdData.id,
+          data_type,
+          device_id,
+          ...(temperature !== undefined && { temperature }),
+          ...(spo2 !== undefined && { spo2 }),
+          ...(heart_rate !== undefined && { heart_rate }),
+        },
+      });
+    } catch (error: any) {
+      console.error("Error processing vitals data:", error);
+      res.status(500).json({ message: error.message || "Failed to process vitals data" });
     }
   });
 
