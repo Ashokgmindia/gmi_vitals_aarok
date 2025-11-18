@@ -244,7 +244,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/vitals", async (req: Request, res: Response) => {
     try {
       const data = req.body;
-      const { device_id, data_type, temperature, spo2, heart_rate, timestamp } = data;
+      
+      // Extract device_id and data_type
+      const device_id = data.device_id;
+      const data_type = data.data_type;
 
       // Validate required fields
       if (!device_id || !data_type) {
@@ -273,9 +276,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Prepare data based on data_type
       let ecgDataToStore: InsertEcgData;
+      let responseTemperature: number | undefined;
+      let responseSpo2: number | undefined;
+      let responseHeartRate: number | undefined;
 
-      if (data_type === "temperature" && temperature !== undefined) {
-        // Temperature data
+      if (data_type === "temperature") {
+        // Temperature data - accept both "temperature" and "temperature_c" field names
+        const temperature = data.temperature !== undefined ? data.temperature : data.temperature_c;
+        
+        if (temperature === undefined) {
+          return res.status(400).json({ 
+            message: "Missing temperature field for temperature data_type" 
+          });
+        }
+
+        responseTemperature = parseFloat(temperature);
+
         ecgDataToStore = {
           userId: targetUserId,
           recordId: latestData?.recordId || null,
@@ -283,7 +299,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           spo2: latestData?.spo2 || 98,
           systolicBP: latestData?.systolicBP || 120,
           diastolicBP: latestData?.diastolicBP || 80,
-          temperature: parseFloat(temperature),
+          temperature: responseTemperature,
           respiratoryRate: latestData?.respiratoryRate || 20,
           plethWaveform: latestData?.plethWaveform || null,
           spo2Waveform: latestData?.spo2Waveform || null,
@@ -292,13 +308,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ecgOxpWaveform: latestData?.ecgOxpWaveform || null,
           etco2Waveform: latestData?.etco2Waveform || null,
         };
-      } else if (data_type === "vitals" && (spo2 !== undefined || heart_rate !== undefined)) {
-        // Vitals data (SpO2 and/or Heart Rate)
+      } else if (data_type === "vitals") {
+        // Vitals data - accept both standard and ESP32 field names
+        // Accept: spo2 or max_spo2_percent
+        // Accept: heart_rate or max_heart_rate_bpm
+        const spo2 = data.spo2 !== undefined ? data.spo2 : 
+                     (data.max_spo2_percent !== undefined ? data.max_spo2_percent : undefined);
+        const heart_rate = data.heart_rate !== undefined ? data.heart_rate : 
+                          (data.max_heart_rate_bpm !== undefined ? data.max_heart_rate_bpm : undefined);
+        
+        if (spo2 === undefined && heart_rate === undefined) {
+          return res.status(400).json({ 
+            message: "Missing spo2 or heart_rate field for vitals data_type" 
+          });
+        }
+
+        responseSpo2 = spo2 !== undefined ? parseFloat(String(spo2)) : undefined;
+        responseHeartRate = heart_rate !== undefined ? parseInt(String(heart_rate)) : undefined;
+
         ecgDataToStore = {
           userId: targetUserId,
           recordId: latestData?.recordId || null,
-          heartRate: heart_rate !== undefined ? parseInt(heart_rate) : (latestData?.heartRate || 70),
-          spo2: spo2 !== undefined ? parseInt(spo2) : (latestData?.spo2 || 98),
+          heartRate: responseHeartRate !== undefined ? responseHeartRate : (latestData?.heartRate || 70),
+          spo2: responseSpo2 !== undefined ? Math.round(responseSpo2) : (latestData?.spo2 || 98),
           systolicBP: latestData?.systolicBP || 120,
           diastolicBP: latestData?.diastolicBP || 80,
           temperature: latestData?.temperature || 37.0,
@@ -312,7 +344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       } else {
         return res.status(400).json({ 
-          message: `Invalid data_type or missing required fields for ${data_type}` 
+          message: `Invalid data_type: ${data_type}. Expected 'temperature' or 'vitals'` 
         });
       }
 
@@ -326,9 +358,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: createdData.id,
           data_type,
           device_id,
-          ...(temperature !== undefined && { temperature }),
-          ...(spo2 !== undefined && { spo2 }),
-          ...(heart_rate !== undefined && { heart_rate }),
+          ...(responseTemperature !== undefined && { temperature: responseTemperature }),
+          ...(responseSpo2 !== undefined && { spo2: responseSpo2 }),
+          ...(responseHeartRate !== undefined && { heart_rate: responseHeartRate }),
         },
       });
     } catch (error: any) {

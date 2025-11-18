@@ -1,5 +1,6 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <Wire.h>
 #include "MAX30105.h"
 #include "heartRate.h"
@@ -8,7 +9,7 @@
 // Network Configuration
 const char* WIFI_SSID = "Gio Fiber";
 const char* WIFI_PASS = "Wewillwin@01";
-const char* API_SERVER = "http://192.168.31.62:8000";
+const char* API_SERVER = "https://aarok.gmindia.tech";
 String API_ENDPOINT_VITALS = String(API_SERVER) + "/api/vitals";
 const char* DEVICE_ID = "esp32_vitals_01";
 
@@ -320,7 +321,7 @@ void sendTemperatureData() {
   doc["sensor_type"] = "LM35";
   
   // Instant temperature data (no sampling)
-  doc["temperature_c"] = round(currentTemp * 10.0) / 10.0;
+  doc["temperature"] = round(currentTemp * 10.0) / 10.0;  // Changed from temperature_c to temperature
   doc["temperature_unit"] = "celsius";
   doc["body_contact"] = true;
   doc["data_quality"] = "instant";
@@ -364,8 +365,8 @@ void sendVitalsData() {
   doc["sampling_used"] = true;
   
   // Maximum vitals data from 5-second sampling
-  doc["max_spo2_percent"] = round(vitalsSample.maxSpO2 * 10.0) / 10.0;
-  doc["max_heart_rate_bpm"] = vitalsSample.maxHeartRate;
+  doc["spo2"] = round(vitalsSample.maxSpO2 * 10.0) / 10.0;  // Changed from max_spo2_percent to spo2
+  doc["heart_rate"] = vitalsSample.maxHeartRate;  // Changed from max_heart_rate_bpm to heart_rate
   doc["finger_detected"] = true;
   doc["data_quality"] = "sampled_high";
   
@@ -392,9 +393,20 @@ void sendVitalsData() {
 }
 
 bool sendHTTPRequest(const String& jsonData) {
+  WiFiClientSecure client;
   HTTPClient http;
-  http.begin(API_ENDPOINT_VITALS);
-  http.setTimeout(5000);
+  
+  // For HTTPS, skip certificate validation (use with caution in production)
+  // In production, you should validate the certificate
+  client.setInsecure();
+  
+  // Begin HTTPS connection
+  if (!http.begin(client, API_ENDPOINT_VITALS)) {
+    Serial.println("❌ Failed to begin HTTPS connection");
+    return false;
+  }
+  
+  http.setTimeout(10000); // Increase timeout for HTTPS
   http.addHeader("Content-Type", "application/json");
   http.addHeader("User-Agent", "ESP32-HealthMonitor/2.1");
   
@@ -413,6 +425,7 @@ bool sendHTTPRequest(const String& jsonData) {
     }
   } else {
     Serial.printf("❌ HTTP request failed: %d\n", httpResponseCode);
+    Serial.printf("Error details: %s\n", http.errorToString(httpResponseCode).c_str());
   }
   
   http.end();
