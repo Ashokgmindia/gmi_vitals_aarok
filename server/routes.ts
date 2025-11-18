@@ -550,9 +550,9 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
       // Initialize Gemini AI
       const genAI = new GoogleGenerativeAI(geminiApiKey);
       
-      // Use gemini-2.5-pro model
-      console.log("Using model: gemini-2.5-pro");
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+      // Use gemini-2.5-flash model
+      console.log("Using model: gemini-2.5-flash");
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
       
       // Generate analysis
       const result = await model.generateContent(prompt);
@@ -582,7 +582,7 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
       } else if (errorStr.includes("503") || errorStr.includes("overloaded") || errorStr.includes("service unavailable")) {
         errorMessage = "The Gemini AI service is currently overloaded. Please try again in a few moments.";
       } else if (errorStr.includes("model") || errorStr.includes("404") || errorStr.includes("not found")) {
-        errorMessage = `Model error: The model "gemini-2.5-pro" may not be available or accessible. Error: ${error.message || "Unknown error"}`;
+        errorMessage = `Model error: The model "gemini-2.5-flash" may not be available or accessible. Error: ${error.message || "Unknown error"}`;
       } else if (error.message) {
         errorMessage = error.message;
       }
