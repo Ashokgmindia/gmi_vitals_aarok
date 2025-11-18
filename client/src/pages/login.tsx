@@ -37,15 +37,23 @@ export default function LoginPage() {
       localStorage.setItem("authToken", data.token);
       localStorage.setItem("userId", data.userId);
       localStorage.setItem("userRole", data.role);
+      
+      // Dispatch custom event to notify Router of auth state change
+      window.dispatchEvent(new Event("authStateChanged"));
+      
       toast({
         title: "Login successful",
         description: `Welcome back!`,
       });
-      if (data.role === "admin") {
-        setLocation("/admin");
-      } else {
-        setLocation("/dashboard");
-      }
+      
+      // Use setTimeout to ensure Router has updated before navigation
+      setTimeout(() => {
+        if (data.role === "admin") {
+          setLocation("/admin");
+        } else {
+          setLocation("/dashboard");
+        }
+      }, 0);
     },
     onError: (error: Error) => {
       toast({

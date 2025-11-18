@@ -52,6 +52,10 @@ export function AppSidebar() {
     localStorage.removeItem("authToken");
     localStorage.removeItem("userId");
     localStorage.removeItem("userRole");
+    
+    // Dispatch custom event to notify Router of auth state change
+    window.dispatchEvent(new Event("authStateChanged"));
+    
     setLocation("/login");
   };
 
