@@ -69,7 +69,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center justify-center py-6 px-4">
+          <SidebarGroupLabel className="flex items-center justify-center py-6 px-4 mb-4">
             <img 
               src="/white.png" 
               alt="AAROK AI Logo" 
