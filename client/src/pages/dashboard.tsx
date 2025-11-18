@@ -8,6 +8,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import type { EcgData } from "@shared/schema";
 
+// ESP32 Available Sensors:
+// - Heart Rate (MAX30105)
+// - SpO2 (MAX30105)
+// - Temperature (LM35)
+// NOT Available: Blood Pressure, Respiratory Rate
+
 // Generate realistic ECG waveform data
 const generateWaveform = (type: string, count: number = 200): number[] => {
   const data: number[] = [];
@@ -111,42 +117,52 @@ export default function DashboardPage() {
             Max Values (5s Sampling)
           </Badge>
         </div>
-        <p className="text-muted-foreground">Real-time patient vital signs monitoring from ESP32 sensors</p>
+        <p className="text-muted-foreground">
+          Real-time patient vital signs monitoring from ESP32 sensors
+          <span className="ml-2 text-xs">(Available: Heart Rate, SpO2, Temperature)</span>
+        </p>
       </div>
 
       {/* Vital Signs Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Heart Rate - Available from ESP32 (MAX30105) */}
         <VitalSignCard
           icon={Heart}
           label="Heart Rate"
-          value={ecgData.heartRate}
+          value={ecgData.heartRate || 0}
           unit="BPM"
           color="cyan"
           trend="stable"
+          available={true}
         />
+        {/* SpO2 - Available from ESP32 (MAX30105) */}
         <VitalSignCard
           icon={Droplet}
           label="SpO2"
-          value={ecgData.spo2}
+          value={ecgData.spo2 || 0}
           unit="%"
           color="cyan"
           trend="stable"
+          available={true}
         />
+        {/* Blood Pressure - NOT Available from ESP32 */}
         <VitalSignCard
           icon={Heart}
           label="Blood Pressure"
-          value={`${ecgData.systolicBP}/${ecgData.diastolicBP}`}
+          value="N/A"
           unit=""
           color="yellow"
-          trend="stable"
+          available={false}
         />
+        {/* Temperature - Available from ESP32 (LM35) */}
         <VitalSignCard
           icon={Thermometer}
           label="Temperature"
-          value={typeof ecgData.temperature === 'number' ? ecgData.temperature.toFixed(1) : String(ecgData.temperature)}
+          value={typeof ecgData.temperature === 'number' ? ecgData.temperature.toFixed(1) : String(ecgData.temperature || 'N/A')}
           unit="°C"
           color="red"
           trend="stable"
+          available={true}
         />
       </div>
 
@@ -171,13 +187,13 @@ export default function DashboardPage() {
             data={waveforms.resp}
             color="yellow"
             label="RESP"
-            value={ecgData.respiratoryRate || 20}
+            value="N/A"
           />
           <ECGWaveform
             data={waveforms.cvp}
             color="red"
             label="CVP/ART"
-            value={`${ecgData.systolicBP}/${ecgData.diastolicBP}`}
+            value="N/A"
           />
         </div>
 
