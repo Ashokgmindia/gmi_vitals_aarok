@@ -69,16 +69,16 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center justify-center py-4">
+          <SidebarGroupLabel className="flex items-center justify-center py-4 px-2">
             <img 
               src="/white.png" 
               alt="AAROK AI Logo" 
-              className="h-8 w-auto dark:hidden"
+              className="h-12 w-auto max-w-full object-contain dark:hidden"
             />
             <img 
               src="/black.png" 
               alt="AAROK AI Logo" 
-              className="h-8 w-auto hidden dark:block"
+              className="h-12 w-auto max-w-full object-contain hidden dark:block"
             />
           </SidebarGroupLabel>
           <SidebarGroupContent>
