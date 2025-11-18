@@ -70,7 +70,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md p-8">
+      <Card className="w-full max-w-md p-8 mx-auto">
         <div className="flex items-center justify-center mb-6">
           <Activity className="h-10 w-10 text-primary mr-3" />
           <h1 className="text-3xl font-bold text-foreground">Health Monitor</h1>

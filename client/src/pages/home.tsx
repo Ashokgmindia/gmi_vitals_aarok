@@ -10,8 +10,8 @@ export default function HomePage() {
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
       <div className="relative overflow-hidden bg-gradient-to-b from-primary/10 to-background py-24 sm:py-32">
-        <div className="mx-auto max-w-7xl px-6 lg:px-8">
-          <div className="mx-auto max-w-2xl text-center">
+        <div className="w-full px-6 lg:px-8">
+          <div className="w-full text-center">
             <div className="flex justify-center mb-6">
               <Activity className="h-16 w-16 text-primary" />
             </div>
@@ -43,8 +43,8 @@ export default function HomePage() {
       </div>
 
       {/* Features Section */}
-      <div className="mx-auto max-w-7xl px-6 lg:px-8 py-24">
-        <div className="mx-auto max-w-2xl text-center mb-16">
+      <div className="w-full px-6 lg:px-8 py-24">
+        <div className="w-full text-center mb-16">
           <h2 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Comprehensive Health Monitoring
           </h2>
@@ -82,7 +82,7 @@ export default function HomePage() {
 
       {/* CTA Section */}
       <div className="bg-primary/5 py-16">
-        <div className="mx-auto max-w-7xl px-6 lg:px-8 text-center">
+        <div className="w-full px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-bold tracking-tight text-foreground">
             Ready to start monitoring your health?
           </h2>
@@ -103,7 +103,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="border-t mt-24">
-        <div className="mx-auto max-w-7xl px-6 py-12 lg:px-8">
+        <div className="w-full px-6 py-12 lg:px-8">
           <p className="text-center text-sm text-muted-foreground">
             © 2025 Health Monitor. All rights reserved.
           </p>
