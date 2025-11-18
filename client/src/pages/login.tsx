@@ -69,7 +69,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="h-screen w-full flex items-center justify-center bg-background">
       <Card className="w-full max-w-md p-8">
         <div className="flex items-center justify-center mb-6">
           <Activity className="h-10 w-10 text-primary mr-3" />
