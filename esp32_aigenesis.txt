@@ -16,7 +16,7 @@ const char* DEVICE_ID = "esp32_vitals_01";
 #define LM35_PIN 34
 #define SDA_PIN 21
 #define SCL_PIN 22
-#define LED_PIN 2  // Built-in LED for status indication
+#define LED_PIN 2
 
 // Sensor Objects
 MAX30105 sensor;
@@ -25,179 +25,105 @@ MAX30105 sensor;
 bool sensorOK = false;
 bool wifiConnected = false;
 int wifiRetryCount = 0;
-int httpErrorCount = 0;
 unsigned long lastWiFiAttempt = 0;
 unsigned long lastSensorRead = 0;
 unsigned long lastHeartbeat = 0;
 
-// Sensor Data - Current readings
-float tempC = 0.0;
-float spo2 = 0.0;
-int heartRate = 0;
-bool spo2Valid = false;
-bool tempValid = false;
-bool tempContactDetected = false;
+// Vitals Sampling Structure (only for pulse sensor)
+struct VitalsSample {
+  float maxSpO2 = 0.0;
+  int maxHeartRate = 0;
+  int sampleCount = 0;
+  bool isValid = false;
+  unsigned long startTime = 0;
+};
 
-// Sampling State Variables
-bool tempSampling = false;
-bool fingerSampling = false;
-unsigned long tempSamplingStart = 0;
-unsigned long fingerSamplingStart = 0;
-int tempSampleCount = 0;
-int fingerSampleCount = 0;
+VitalsSample vitalsSample;
 
-// Maximum values during 5-second sampling
-float maxTempC = 0.0;
-float maxSpO2 = 0.0;
-int maxHeartRate = 0;
-bool validTempSample = false;
-bool validFingerSample = false;
+// Current readings
+float currentTemp = 0.0;
+float currentSpO2 = 0.0;
+int currentHeartRate = 0;
+
+// Touch detection states
+bool tempTouchDetected = false;
+bool tempTouchPrevious = false;  // To detect new touch events
+bool fingerTouchDetected = false;
+bool vitalsSampling = false;
 
 // Constants
+const int VITALS_SAMPLING_DURATION = 5000; // 5 seconds for vitals only
+const int SENSOR_READ_INTERVAL = 100; // 100ms
+const int TOUCH_THRESHOLD_TEMP = 30.0; // Minimum temp for human touch
+const int TOUCH_THRESHOLD_IR = 7000; // Minimum IR for finger detection
 const int MAX_WIFI_RETRIES = 3;
-const int MAX_HTTP_RETRIES = 3;
-const int WIFI_TIMEOUT = 10000;  // 10 seconds
-const int HTTP_TIMEOUT = 5000;   // 5 seconds
-const int SENSOR_READ_INTERVAL = 100;  // Read every 100ms for better sampling
-const int SAMPLING_DURATION = 5000;    // 5 seconds sampling period
-const int HEARTBEAT_INTERVAL = 15000;  // Status every 15 seconds
+const int WIFI_TIMEOUT = 10000;
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
   
-  Serial.println("=== ESP32 Health Monitor Starting ===");
-  Serial.println("=== 5-Second Sampling Mode ===");
+  Serial.println("=== ESP32 Health Monitor v2.1 ===");
+  Serial.println("=== Instant Temperature + 5sec Vitals Sampling ===");
   delay(1000);
   
-  // Initialize I2C with error checking
-  if (!initializeI2C()) {
-    Serial.println("ERROR: I2C initialization failed");
-    handleCriticalError("I2C_INIT_FAIL");
-  }
-  
-  // Initialize MAX30105 sensor
-  if (!initializeSensor()) {
-    Serial.println("WARNING: MAX30105 sensor initialization failed");
-    sensorOK = false;
-  }
-  
-  // Initialize temperature sensor
-  if (!initializeTemperatureSensor()) {
-    Serial.println("WARNING: Temperature sensor initialization failed");
-  }
-  
-  // Connect to WiFi
+  initializeI2C();
+  initializeSensors();
   connectWiFi();
   
-  Serial.println("=== Setup Complete ===");
-  Serial.println("Ready for sensor contact detection...");
+  Serial.println("=== Ready for touch detection ===");
+  Serial.println("📱 Temperature: Instant reading on body contact");
+  Serial.println("👆 Vitals: 5-second sampling on finger contact");
 }
 
 void loop() {
   unsigned long currentTime = millis();
   
-  // Check WiFi connection periodically
   checkWiFiConnection();
   
-  // Read sensors at specified interval
   if (currentTime - lastSensorRead >= SENSOR_READ_INTERVAL) {
     readAllSensors();
-    processSampling(currentTime);
+    processTouchDetection(currentTime);
+    processVitalsSampling(currentTime);
     lastSensorRead = currentTime;
   }
   
-  // Send heartbeat status
-  if (currentTime - lastHeartbeat >= HEARTBEAT_INTERVAL) {
-    sendHeartbeat();
+  if (currentTime - lastHeartbeat >= 15000) {
+    printSystemStatus();
     lastHeartbeat = currentTime;
   }
   
-  // Update status LED
   updateStatusLED();
-  
-  delay(50); // Small delay for system stability
+  delay(50);
 }
 
-bool initializeI2C() {
+void initializeI2C() {
   Wire.begin(SDA_PIN, SCL_PIN);
-  
-  // Test I2C bus by scanning for devices
-  byte error, address;
-  int deviceCount = 0;
-  
-  Serial.println("Scanning I2C devices...");
-  for(address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-    if (error == 0) {
-      Serial.printf("I2C device found at address 0x%02X\n", address);
-      deviceCount++;
-    }
-  }
-  
-  Serial.printf("SUCCESS: I2C bus initialized, found %d devices\n", deviceCount);
-  return true;
+  Serial.println("✓ I2C initialized");
 }
 
-bool initializeSensor() {
-  Serial.println("Initializing MAX30105 sensor...");
-  
-  if (!sensor.begin(Wire, I2C_SPEED_STANDARD)) {
-    Serial.println("ERROR: MAX30105 not found - check wiring");
-    return false;
-  }
-  
-  // Configure sensor for better accuracy
-  sensor.setup();
-  sensor.setPulseAmplitudeIR(0x0A);
-  sensor.setPulseAmplitudeRed(0x0A);
-  
-  // Test sensor reading
-  delay(100);
-  long testIR = sensor.getIR();
-  
-  if (testIR >= 0) {
+void initializeSensors() {
+  // Initialize MAX30105
+  if (sensor.begin(Wire, I2C_SPEED_STANDARD)) {
+    sensor.setup();
+    sensor.setPulseAmplitudeIR(0x0A);
+    sensor.setPulseAmplitudeRed(0x0A);
     sensorOK = true;
-    Serial.println("SUCCESS: MAX30105 sensor initialized");
-    Serial.printf("Initial IR reading: %ld\n", testIR);
-    return true;
+    Serial.println("✓ MAX30105 sensor initialized");
   } else {
-    Serial.println("ERROR: Invalid sensor reading during initialization");
-    return false;
+    Serial.println("✗ MAX30105 sensor failed");
+    sensorOK = false;
   }
-}
-
-bool initializeTemperatureSensor() {
-  Serial.println("Initializing LM35 temperature sensor...");
   
+  // Initialize LM35
   analogSetPinAttenuation(LM35_PIN, ADC_11db);
-  
-  // Test temperature reading
-  delay(10);
-  int testRaw = analogRead(LM35_PIN);
-  float testVoltage = (testRaw / 4095.0f) * 3.3f;
-  float testTemp = testVoltage / 0.01f;
-  
-  if (testRaw >= 0 && testRaw <= 4095) {
-    Serial.println("SUCCESS: LM35 temperature sensor initialized");
-    Serial.printf("Initial temperature reading: %.1f°C\n", testTemp);
-    return true;
-  } else {
-    Serial.println("ERROR: Invalid temperature sensor reading");
-    return false;
-  }
+  Serial.println("✓ LM35 temperature sensor initialized");
 }
 
 void connectWiFi() {
-  if (wifiConnected || (millis() - lastWiFiAttempt < 5000)) return;
+  if (wifiConnected) return;
   
-  lastWiFiAttempt = millis();
-  wifiRetryCount++;
-  
-  Serial.printf("Attempting WiFi connection (attempt %d/%d)...\n", 
-                wifiRetryCount, MAX_WIFI_RETRIES);
-  
+  Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   
   unsigned long startTime = millis();
@@ -209,323 +135,198 @@ void connectWiFi() {
   
   if (WiFi.status() == WL_CONNECTED) {
     wifiConnected = true;
-    wifiRetryCount = 0;
-    Serial.printf("\nSUCCESS: WiFi connected to %s\n", WIFI_SSID);
-    Serial.printf("IP address: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("Signal strength: %d dBm\n", WiFi.RSSI());
+    Serial.printf("\n✓ WiFi connected: %s\n", WiFi.localIP().toString().c_str());
   } else {
+    Serial.println("\n✗ WiFi connection failed");
     wifiConnected = false;
-    Serial.printf("\nERROR: WiFi connection failed (Status: %d)\n", WiFi.status());
-    printWiFiStatus(WiFi.status());
-    
-    if (wifiRetryCount >= MAX_WIFI_RETRIES) {
-      Serial.println("ERROR: Maximum WiFi retry attempts reached");
-      wifiRetryCount = 0;
-      delay(30000);
-    }
-  }
-}
-
-void printWiFiStatus(wl_status_t status) {
-  switch(status) {
-    case WL_NO_SHIELD:
-      Serial.println("WiFi Error: No WiFi shield present");
-      break;
-    case WL_IDLE_STATUS:
-      Serial.println("WiFi Status: Idle");
-      break;
-    case WL_NO_SSID_AVAIL:
-      Serial.println("WiFi Error: SSID not available");
-      break;
-    case WL_SCAN_COMPLETED:
-      Serial.println("WiFi Status: Scan completed");
-      break;
-    case WL_CONNECTED:
-      Serial.println("WiFi Status: Connected");
-      break;
-    case WL_CONNECT_FAILED:
-      Serial.println("WiFi Error: Connection failed");
-      break;
-    case WL_CONNECTION_LOST:
-      Serial.println("WiFi Error: Connection lost");
-      break;
-    case WL_DISCONNECTED:
-      Serial.println("WiFi Status: Disconnected");
-      break;
-    default:
-      Serial.printf("WiFi Status: Unknown (%d)\n", status);
-      break;
   }
 }
 
 void checkWiFiConnection() {
-  wl_status_t currentStatus = WiFi.status();
-  
-  if (currentStatus != WL_CONNECTED) {
+  if (WiFi.status() != WL_CONNECTED) {
     if (wifiConnected) {
-      Serial.println("WARNING: WiFi connection lost");
-      printWiFiStatus(currentStatus);
+      Serial.println("WiFi connection lost - reconnecting...");
       wifiConnected = false;
     }
-    connectWiFi();
-  } else {
-    if (!wifiConnected) {
-      Serial.println("WiFi connection restored");
+    static unsigned long lastAttempt = 0;
+    if (millis() - lastAttempt > 10000) {
+      connectWiFi();
+      lastAttempt = millis();
     }
+  } else {
     wifiConnected = true;
   }
 }
 
 void readAllSensors() {
-  // Read temperature sensor (LM35 with contact detection)
-  readTemperature();
+  // Read temperature
+  readTemperatureSensor();
   
-  // Read heart rate and SpO2 sensors (MAX30105 with finger detection)
+  // Read vitals if sensor is OK
   if (sensorOK) {
-    readHeartRateAndSpO2();
-  } else {
-    heartRate = 0;
-    spo2 = 0.0;
-    spo2Valid = false;
+    readVitalsSensor();
   }
 }
 
-void readTemperature() {
-  int raw = analogRead(LM35_PIN);
+void readTemperatureSensor() {
+  int rawValue = analogRead(LM35_PIN);
+  float voltage = (rawValue / 4095.0f) * 3.3f;
+  currentTemp = voltage / 0.01f;
   
-  if (raw < 0 || raw > 4095) {
-    tempValid = false;
-    tempContactDetected = false;
-    return;
-  }
-  
-  float voltage = (raw / 4095.0f) * 3.3f;
-  tempC = voltage / 0.01f;
-  
-  // Contact detection logic
-  if (tempC < 10.0 || tempC > 50.0) {
-    tempValid = false;
-    tempContactDetected = false;
-  } else if (tempC >= 10.0 && tempC < 30.0) {
-    tempContactDetected = false;
-    tempValid = false;
-  } else if (tempC >= 30.0 && tempC <= 50.0) {
-    tempContactDetected = true;
-    tempValid = true;
+  // Validate temperature reading
+  if (currentTemp >= 15.0 && currentTemp <= 45.0) {
+    // Valid temperature range
   } else {
-    tempValid = false;
-    tempContactDetected = false;
+    currentTemp = 0.0;
   }
 }
 
-void readHeartRateAndSpO2() {
+void readVitalsSensor() {
   long ir = sensor.getIR();
   long red = sensor.getRed();
   
-  if (ir < 0 || red < 0) {
-    spo2Valid = false;
-    return;
-  }
-  
-  if (fingerDetected(ir, red)) {
-    heartRate = calcHeartRate(ir);
-    spo2 = calcSpO2(red, ir);
+  if (ir > 0 && red > 0) {
+    // Calculate heart rate (simplified)
+    currentHeartRate = map(constrain(ir % 3000, 0, 3000), 0, 3000, 60, 120);
+    currentHeartRate = constrain(currentHeartRate, 50, 200);
     
-    if (heartRate >= 30 && heartRate <= 200 && spo2 >= 70.0 && spo2 <= 100.0) {
-      spo2Valid = true;
+    // Calculate SpO2 (simplified)
+    if (ir > 0) {
+      float ratio = (float)red / (float)ir;
+      currentSpO2 = constrain(110.0 - (25.0 * ratio), 85.0, 100.0);
     } else {
-      spo2Valid = false;
+      currentSpO2 = 0.0;
     }
   } else {
-    heartRate = 0;
-    spo2 = 0.0;
-    spo2Valid = false;
+    currentHeartRate = 0;
+    currentSpO2 = 0.0;
   }
 }
 
-void processSampling(unsigned long currentTime) {
-  // Handle Temperature Sampling
-  if (tempContactDetected && tempValid) {
-    if (!tempSampling) {
-      // Start temperature sampling
-      startTemperatureSampling(currentTime);
+void processTouchDetection(unsigned long currentTime) {
+  // Temperature sensor touch detection - INSTANT READING
+  tempTouchDetected = (currentTemp >= TOUCH_THRESHOLD_TEMP);
+  
+  // Check for NEW temperature touch (rising edge)
+  if (tempTouchDetected && !tempTouchPrevious) {
+    Serial.printf("🔥 BODY CONTACT DETECTED! Temperature: %.1f°C\n", currentTemp);
+    
+    // Send temperature data immediately (no sampling)
+    if (wifiConnected) {
+      sendTemperatureData();
     } else {
-      // Continue temperature sampling
-      continueTemperatureSampling(currentTime);
+      Serial.println("⚠️ No WiFi - Cannot send temperature data");
     }
+  }
+  
+  // Update previous state
+  tempTouchPrevious = tempTouchDetected;
+  
+  // Vitals sensor touch detection - 5 SECOND SAMPLING
+  long ir = sensorOK ? sensor.getIR() : 0;
+  bool newFingerTouch = (ir > TOUCH_THRESHOLD_IR);
+  
+  if (newFingerTouch && !fingerTouchDetected) {
+    fingerTouchDetected = true;
+    Serial.printf("👆 FINGER DETECTED! Starting 5-second vitals sampling...\n");
+    startVitalsSampling(currentTime);
+  } else if (!newFingerTouch && fingerTouchDetected) {
+    fingerTouchDetected = false;
+    if (vitalsSampling) {
+      Serial.println("⚠️ Finger removed during sampling");
+      stopVitalsSampling();
+    }
+  }
+}
+
+void processVitalsSampling(unsigned long currentTime) {
+  if (vitalsSampling) {
+    processVitalsSamplingContinuous(currentTime);
+  }
+}
+
+void startVitalsSampling(unsigned long currentTime) {
+  vitalsSampling = true;
+  vitalsSample.startTime = currentTime;
+  vitalsSample.maxSpO2 = currentSpO2;
+  vitalsSample.maxHeartRate = currentHeartRate;
+  vitalsSample.sampleCount = 1;
+  vitalsSample.isValid = true;
+  
+  Serial.printf("📊 Vitals sampling started - SpO2: %.1f%%, HR: %d BPM\n", 
+                currentSpO2, currentHeartRate);
+}
+
+void processVitalsSamplingContinuous(unsigned long currentTime) {
+  unsigned long elapsed = currentTime - vitalsSample.startTime;
+  vitalsSample.sampleCount++;
+  
+  // Track maximum values during sampling
+  if (currentSpO2 > vitalsSample.maxSpO2) {
+    vitalsSample.maxSpO2 = currentSpO2;
+  }
+  if (currentHeartRate > vitalsSample.maxHeartRate) {
+    vitalsSample.maxHeartRate = currentHeartRate;
+  }
+  
+  // Show progress every 10 samples
+  if (vitalsSample.sampleCount % 10 == 0) {
+    float progress = (float)elapsed / VITALS_SAMPLING_DURATION * 100.0;
+    Serial.printf("💗 Vitals Progress: %.0f%% - SpO2: %.1f%% (Max: %.1f%%), HR: %d (Max: %d)\n", 
+                  progress, currentSpO2, vitalsSample.maxSpO2, 
+                  currentHeartRate, vitalsSample.maxHeartRate);
+  }
+  
+  // Check if sampling completed
+  if (elapsed >= VITALS_SAMPLING_DURATION) {
+    completeVitalsSampling();
+  }
+}
+
+void completeVitalsSampling() {
+  vitalsSampling = false;
+  
+  Serial.printf("✅ VITALS SAMPLING COMPLETE!\n");
+  Serial.printf("   Duration: 5 seconds\n");
+  Serial.printf("   Samples collected: %d\n", vitalsSample.sampleCount);
+  Serial.printf("   Maximum SpO2: %.1f%%\n", vitalsSample.maxSpO2);
+  Serial.printf("   Maximum Heart Rate: %d BPM\n", vitalsSample.maxHeartRate);
+  
+  // Send data to server
+  if (wifiConnected) {
+    sendVitalsData();
   } else {
-    if (tempSampling) {
-      // Stop temperature sampling if contact lost
-      stopTemperatureSampling();
-    }
+    Serial.println("⚠️ No WiFi - Cannot send vitals data");
   }
   
-  // Handle Finger Sampling (SpO2/Heart Rate)
-  if (spo2Valid) {
-    if (!fingerSampling) {
-      // Start finger sampling
-      startFingerSampling(currentTime);
-    } else {
-      // Continue finger sampling
-      continueFingerSampling(currentTime);
-    }
-  } else {
-    if (fingerSampling) {
-      // Stop finger sampling if finger removed
-      stopFingerSampling();
-    }
-  }
-  
-  // Print current status
-  printCurrentStatus();
+  // Reset for next sampling
+  resetVitalsSample();
 }
 
-void startTemperatureSampling(unsigned long currentTime) {
-  tempSampling = true;
-  tempSamplingStart = currentTime;
-  tempSampleCount = 0;
-  maxTempC = 0.0;
-  validTempSample = false;
-  
-  Serial.println(">>> STARTING Temperature Sampling (5 seconds)");
-  Serial.printf("Initial Temperature: %.1f°C\n", tempC);
-}
-
-void continueTemperatureSampling(unsigned long currentTime) {
-  tempSampleCount++;
-  
-  // Track maximum temperature
-  if (tempC > maxTempC) {
-    maxTempC = tempC;
-    validTempSample = true;
-  }
-  
-  unsigned long elapsed = currentTime - tempSamplingStart;
-  float progress = (float)elapsed / SAMPLING_DURATION * 100.0;
-  
-  Serial.printf("TEMP Sampling: %.1f%% - Current: %.1f°C, Max: %.1f°C (Samples: %d)\n", 
-                progress, tempC, maxTempC, tempSampleCount);
-  
-  // Check if 5 seconds completed
-  if (elapsed >= SAMPLING_DURATION) {
-    completeTemperatureSampling();
-  }
-}
-
-void completeTemperatureSampling() {
-  tempSampling = false;
-  
-  Serial.println(">>> COMPLETED Temperature Sampling");
-  Serial.printf("Final Results - Max Temperature: %.1f°C (from %d samples)\n", 
-                maxTempC, tempSampleCount);
-  
-  if (validTempSample && wifiConnected) {
-    sendTemperatureData();
-  } else if (!wifiConnected) {
-    Serial.println("WARNING: Cannot send temperature data - No WiFi connection");
-  }
-}
-
-void stopTemperatureSampling() {
-  if (tempSampling) {
-    tempSampling = false;
-    Serial.println(">>> STOPPED Temperature Sampling - Contact lost");
-    Serial.printf("Incomplete sampling - Max Temperature so far: %.1f°C\n", maxTempC);
-  }
-}
-
-void startFingerSampling(unsigned long currentTime) {
-  fingerSampling = true;
-  fingerSamplingStart = currentTime;
-  fingerSampleCount = 0;
-  maxSpO2 = 0.0;
-  maxHeartRate = 0;
-  validFingerSample = false;
-  
-  Serial.println(">>> STARTING Finger Sampling (5 seconds)");
-  Serial.printf("Initial SpO2: %.1f%%, HR: %d BPM\n", spo2, heartRate);
-}
-
-void continueFingerSampling(unsigned long currentTime) {
-  fingerSampleCount++;
-  
-  // Track maximum values
-  if (spo2 > maxSpO2) {
-    maxSpO2 = spo2;
-    validFingerSample = true;
-  }
-  if (heartRate > maxHeartRate) {
-    maxHeartRate = heartRate;
-    validFingerSample = true;
-  }
-  
-  unsigned long elapsed = currentTime - fingerSamplingStart;
-  float progress = (float)elapsed / SAMPLING_DURATION * 100.0;
-  
-  Serial.printf("FINGER Sampling: %.1f%% - Current: SpO2=%.1f%%, HR=%d - Max: SpO2=%.1f%%, HR=%d (Samples: %d)\n", 
-                progress, spo2, heartRate, maxSpO2, maxHeartRate, fingerSampleCount);
-  
-  // Check if 5 seconds completed
-  if (elapsed >= SAMPLING_DURATION) {
-    completeFingerSampling();
-  }
-}
-
-void completeFingerSampling() {
-  fingerSampling = false;
-  
-  Serial.println(">>> COMPLETED Finger Sampling");
-  Serial.printf("Final Results - Max SpO2: %.1f%%, Max HR: %d BPM (from %d samples)\n", 
-                maxSpO2, maxHeartRate, fingerSampleCount);
-  
-  if (validFingerSample && wifiConnected) {
-    sendFingerData();
-  } else if (!wifiConnected) {
-    Serial.println("WARNING: Cannot send finger data - No WiFi connection");
-  }
-}
-
-void stopFingerSampling() {
-  if (fingerSampling) {
-    fingerSampling = false;
-    Serial.println(">>> STOPPED Finger Sampling - Finger removed");
-    Serial.printf("Incomplete sampling - Max SpO2: %.1f%%, Max HR: %d BPM\n", maxSpO2, maxHeartRate);
-  }
-}
-
-bool fingerDetected(long ir, long red) {
-  return (ir > 5000 && red > 5000);
-}
-
-int calcHeartRate(long ir) {
-  int mapped = map(ir % 3000, 0, 3000, 60, 110);
-  return constrain(mapped, 30, 200);
-}
-
-float calcSpO2(long red, long ir) {
-  if (ir == 0) return 0.0;
-  
-  float r = (float)red / (float)ir;
-  float spo2Value = 110.0 - (25.0 * r);
-  return constrain(spo2Value, 70.0, 100.0);
+void stopVitalsSampling() {
+  vitalsSampling = false;
+  Serial.println("🛑 Vitals sampling stopped - finger removed");
+  resetVitalsSample();
 }
 
 void sendTemperatureData() {
-  Serial.println(">>> Sending Temperature Data to Server");
+  Serial.println("📤 Sending instant temperature data to server...");
   
-  DynamicJsonDocument doc(400);
+  // Create JSON payload for immediate temperature reading
+  DynamicJsonDocument doc(512);
   doc["device_id"] = DEVICE_ID;
   doc["timestamp"] = millis();
   doc["data_type"] = "temperature";
-  doc["sampling_duration"] = SAMPLING_DURATION;
-  doc["sample_count"] = tempSampleCount;
+  doc["sensor_type"] = "LM35";
   
-  // Maximum temperature data
-  doc["temperature"] = round(maxTempC * 10.0) / 10.0;
-  doc["temp_contact"] = true;
-  doc["temp_status"] = "body_contact_detected";
+  // Instant temperature data (no sampling)
+  doc["temperature_c"] = round(currentTemp * 10.0) / 10.0;
+  doc["temperature_unit"] = "celsius";
+  doc["body_contact"] = true;
+  doc["data_quality"] = "instant";
+  doc["sampling_used"] = false;
   
-  // System info
+  // System information
   doc["wifi_rssi"] = WiFi.RSSI();
   doc["uptime_ms"] = millis();
   doc["free_heap"] = ESP.getFreeHeap();
@@ -533,31 +334,42 @@ void sendTemperatureData() {
   String jsonString;
   serializeJson(doc, jsonString);
   
-  Serial.printf("Sending Max Temperature: %.1f°C\n", maxTempC);
+  // Print JSON for debugging
+  Serial.println("📋 Temperature JSON Data:");
+  serializeJsonPretty(doc, Serial);
+  Serial.println();
+  
+  // Send to server
   if (sendHTTPRequest(jsonString)) {
-    Serial.println("✓ Temperature data sent successfully");
+    Serial.printf("✅ Temperature data sent successfully! (%.1f°C)\n", currentTemp);
   } else {
-    Serial.println("✗ Failed to send temperature data");
+    Serial.println("❌ Failed to send temperature data");
   }
 }
 
-void sendFingerData() {
-  Serial.println(">>> Sending Finger Data to Server");
+void sendVitalsData() {
+  Serial.println("📤 Sending sampled vitals data to server...");
   
-  DynamicJsonDocument doc(400);
+  // Create JSON payload for sampled vitals
+  DynamicJsonDocument doc(512);
   doc["device_id"] = DEVICE_ID;
   doc["timestamp"] = millis();
   doc["data_type"] = "vitals";
-  doc["sampling_duration"] = SAMPLING_DURATION;
-  doc["sample_count"] = fingerSampleCount;
+  doc["sensor_type"] = "MAX30105";
   
-  // Maximum vitals data
-  doc["spo2"] = round(maxSpO2 * 10.0) / 10.0;
-  doc["heart_rate"] = maxHeartRate;
+  // Sampling information
+  doc["sampling_duration_ms"] = VITALS_SAMPLING_DURATION;
+  doc["sample_count"] = vitalsSample.sampleCount;
+  doc["sampling_complete"] = true;
+  doc["sampling_used"] = true;
+  
+  // Maximum vitals data from 5-second sampling
+  doc["max_spo2_percent"] = round(vitalsSample.maxSpO2 * 10.0) / 10.0;
+  doc["max_heart_rate_bpm"] = vitalsSample.maxHeartRate;
   doc["finger_detected"] = true;
-  doc["vitals_status"] = "finger_detected";
+  doc["data_quality"] = "sampled_high";
   
-  // System info
+  // System information
   doc["wifi_rssi"] = WiFi.RSSI();
   doc["uptime_ms"] = millis();
   doc["free_heap"] = ESP.getFreeHeap();
@@ -565,139 +377,92 @@ void sendFingerData() {
   String jsonString;
   serializeJson(doc, jsonString);
   
-  Serial.printf("Sending Max SpO2: %.1f%%, Max HR: %d BPM\n", maxSpO2, maxHeartRate);
+  // Print JSON for debugging
+  Serial.println("📋 Vitals JSON Data:");
+  serializeJsonPretty(doc, Serial);
+  Serial.println();
+  
+  // Send to server
   if (sendHTTPRequest(jsonString)) {
-    Serial.println("✓ Finger data sent successfully");
+    Serial.printf("✅ Vitals data sent successfully! (SpO2: %.1f%%, HR: %d BPM)\n", 
+                  vitalsSample.maxSpO2, vitalsSample.maxHeartRate);
   } else {
-    Serial.println("✗ Failed to send finger data");
+    Serial.println("❌ Failed to send vitals data");
   }
 }
 
 bool sendHTTPRequest(const String& jsonData) {
   HTTPClient http;
-  bool success = false;
-  
   http.begin(API_ENDPOINT_VITALS);
-  http.setTimeout(HTTP_TIMEOUT);
+  http.setTimeout(5000);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("User-Agent", "ESP32-HealthMonitor/2.0");
-  http.addHeader("Connection", "close");
+  http.addHeader("User-Agent", "ESP32-HealthMonitor/2.1");
   
   int httpResponseCode = http.POST(jsonData);
+  bool success = false;
   
   if (httpResponseCode > 0) {
     String response = http.getString();
+    Serial.printf("HTTP Response Code: %d\n", httpResponseCode);
     
     if (httpResponseCode == 200 || httpResponseCode == 201) {
-      Serial.printf("SUCCESS: Data sent (HTTP %d)\n", httpResponseCode);
+      Serial.println("✅ Server accepted the data");
       success = true;
-      httpErrorCount = 0;
     } else {
-      Serial.printf("WARNING: HTTP response code: %d\n", httpResponseCode);
-      if (response.length() > 0 && response.length() < 200) {
-        Serial.printf("Server response: %s\n", response.c_str());
-      }
-      httpErrorCount++;
-      success = false;
+      Serial.printf("⚠️ Server response: %s\n", response.c_str());
     }
   } else {
-    Serial.printf("ERROR: HTTP request failed with code: %d\n", httpResponseCode);
-    httpErrorCount++;
-    success = false;
+    Serial.printf("❌ HTTP request failed: %d\n", httpResponseCode);
   }
   
   http.end();
   return success;
 }
 
-void printCurrentStatus() {
-  static unsigned long lastStatusPrint = 0;
-  unsigned long currentTime = millis();
-  
-  // Print status every 2 seconds during normal operation
-  if (currentTime - lastStatusPrint > 2000 && !tempSampling && !fingerSampling) {
-    Serial.println("--- Current Status ---");
-    
-    if (tempContactDetected && tempValid) {
-      Serial.printf("TEMP: %.1f°C (Body contact - Ready to sample)\n", tempC);
-    } else if (tempC >= 10.0 && tempC < 30.0) {
-      Serial.printf("TEMP: %.1f°C (Room temperature - No contact)\n", tempC);
-    } else {
-      Serial.printf("TEMP: %.1f°C (No contact detected)\n", tempC);
-    }
-    
-    if (spo2Valid) {
-      Serial.printf("VITALS: SpO2=%.1f%%, HR=%d BPM (Finger detected - Ready to sample)\n", spo2, heartRate);
-    } else {
-      Serial.println("VITALS: No finger detected");
-    }
-    
-    if (wifiConnected) {
-      Serial.printf("WiFi: Connected (RSSI: %d dBm)\n", WiFi.RSSI());
-    } else {
-      Serial.println("WiFi: Disconnected");
-    }
-    
-    Serial.println("---------------------");
-    lastStatusPrint = currentTime;
-  }
+void resetVitalsSample() {
+  vitalsSample.maxSpO2 = 0.0;
+  vitalsSample.maxHeartRate = 0;
+  vitalsSample.sampleCount = 0;
+  vitalsSample.isValid = false;
+  vitalsSample.startTime = 0;
 }
 
-void sendHeartbeat() {
-  Serial.println("=== SYSTEM HEARTBEAT ===");
+void printSystemStatus() {
+  Serial.println("=== SYSTEM STATUS ===");
   Serial.printf("Uptime: %lu seconds\n", millis() / 1000);
-  Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
   Serial.printf("WiFi: %s", wifiConnected ? "Connected" : "Disconnected");
   if (wifiConnected) {
     Serial.printf(" (RSSI: %d dBm)", WiFi.RSSI());
   }
   Serial.println();
-  Serial.printf("MAX30105 sensor: %s\n", sensorOK ? "OK" : "ERROR");
-  Serial.printf("LM35 sensor: %s\n", (tempC > 10.0 && tempC < 50.0) ? "OK" : "ERROR");
-  Serial.printf("HTTP errors: %d\n", httpErrorCount);
-  Serial.printf("Temp sampling: %s\n", tempSampling ? "ACTIVE" : "IDLE");
-  Serial.printf("Finger sampling: %s\n", fingerSampling ? "ACTIVE" : "IDLE");
-  Serial.printf("Temperature contact: %s\n", tempContactDetected ? "YES" : "NO");
-  Serial.printf("Finger detection: %s\n", spo2Valid ? "YES" : "NO");
-  Serial.println("========================");
+  
+  Serial.printf("Current Temperature: %.1f°C %s\n", 
+                currentTemp, tempTouchDetected ? "[BODY CONTACT]" : "");
+  Serial.printf("Current SpO2: %.1f%%, HR: %d BPM %s\n", 
+                currentSpO2, currentHeartRate, fingerTouchDetected ? "[FINGER]" : "");
+  
+  Serial.printf("Vitals Sampling: %s\n", vitalsSampling ? "ACTIVE" : "IDLE");
+  Serial.println("====================");
 }
 
 void updateStatusLED() {
-  static unsigned long lastLedUpdate = 0;
-  static bool ledState = false;
+  static unsigned long lastUpdate = 0;
   unsigned long currentTime = millis();
   
-  if (currentTime - lastLedUpdate > 500) {  // Update every 500ms
-    if (tempSampling || fingerSampling) {
-      // Very fast blink during sampling
+  if (currentTime - lastUpdate > 100) {
+    if (vitalsSampling) {
+      // Fast blink during vitals sampling
       digitalWrite(LED_PIN, ((currentTime / 100) % 2) ? HIGH : LOW);
-    } else if (wifiConnected && (sensorOK || (tempC > 10.0 && tempC < 50.0))) {
-      // Slow blink - all systems operational
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState ? HIGH : LOW);
+    } else if (tempTouchDetected || fingerTouchDetected) {
+      // Medium blink when any touch detected
+      digitalWrite(LED_PIN, ((currentTime / 300) % 2) ? HIGH : LOW);
     } else if (wifiConnected) {
-      // Fast blink - WiFi OK but sensor issues
-      digitalWrite(LED_PIN, ((currentTime / 250) % 2) ? HIGH : LOW);
+      // Slow blink when ready
+      digitalWrite(LED_PIN, ((currentTime / 1000) % 2) ? HIGH : LOW);
     } else {
-      // Solid on - WiFi connection issues
+      // Solid on when no WiFi
       digitalWrite(LED_PIN, HIGH);
     }
-    lastLedUpdate = currentTime;
+    lastUpdate = currentTime;
   }
-}
-
-void handleCriticalError(const char* errorCode) {
-  Serial.printf("CRITICAL ERROR: %s\n", errorCode);
-  Serial.println("System will restart in 5 seconds...");
-  
-  // Blink LED rapidly to indicate critical error
-  for (int i = 0; i < 10; i++) {
-    digitalWrite(LED_PIN, HIGH);
-    delay(250);
-    digitalWrite(LED_PIN, LOW);
-    delay(250);
-  }
-  
-  Serial.println("Restarting ESP32...");
-  ESP.restart();
 }
