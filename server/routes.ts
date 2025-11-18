@@ -554,7 +554,8 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
 
       // Initialize Gemini AI
       const genAI = new GoogleGenerativeAI(geminiApiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+      // Using gemini-2.5-flash for faster and improved responses
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       // Generate analysis
       const result = await model.generateContent(prompt);
@@ -573,8 +574,19 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
       });
     } catch (error: any) {
       console.error("Error generating AI analysis:", error);
+      
+      // Provide better error messages for common issues
+      let errorMessage = "Failed to generate AI analysis";
+      if (error.message?.includes("API key")) {
+        errorMessage = "Invalid or missing Gemini API key. Please check your GEMINI_API_KEY environment variable.";
+      } else if (error.message?.includes("model") || error.message?.includes("404")) {
+        errorMessage = "Gemini model error. Please ensure you have access to the Gemini API.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       res.status(500).json({ 
-        message: error.message || "Failed to generate AI analysis",
+        message: errorMessage,
         error: process.env.NODE_ENV === "development" ? error.stack : undefined
       });
     }
