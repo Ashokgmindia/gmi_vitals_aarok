@@ -8,15 +8,16 @@ import { nanoid } from "nanoid";
 
 const viteLogger = createLogger();
 
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
+export function log(message: string, source = "express", level: "info" | "error" | "warn" = "info") {
+  const formattedTime = new Date().toISOString();
+  const logLevel = process.env.LOG_LEVEL || "info";
+  
+  // Only log if level is appropriate
+  if (level === "error" || logLevel === "debug" || logLevel === "info") {
+    const prefix = level === "error" ? "❌" : level === "warn" ? "⚠️" : "ℹ️";
+    const output = level === "error" ? console.error : console.log;
+    output(`${prefix} ${formattedTime} [${source.toUpperCase()}] ${message}`);
+  }
 }
 
 export async function setupVite(app: Express, server: Server) {

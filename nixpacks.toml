@@ -1,12 +1,48 @@
+# ============================================================================
+# Production Nixpacks Configuration for aarok_frontend
+# ============================================================================
+# This configuration builds and runs the Express.js server with React frontend
+# in a production-ready environment.
+
 [phases.setup]
-nixPkgs = ["nodejs_18", "npm-9_x"]
+# Install Node.js 18 LTS and npm 9.x for stable production builds
+nixPkgs = ["nodejs_18", "npm-9_x", "openssl"]
 
 [phases.install]
+# Install all dependencies (including dev dependencies needed for build)
+# Using npm ci for faster, reliable, reproducible builds
+# Dev dependencies are needed for TypeScript, Vite, and build tools
 cmds = ["npm ci"]
 
 [phases.build]
+# Build the React frontend and bundle the Express server
+# This creates optimized production assets in dist/public
 cmds = ["npm run build"]
 
 [start]
+# Start the production server
+# NODE_ENV=production is set in package.json start script
+# PORT is automatically set by EasyPanel (defaults to 5000)
 cmd = "npm start"
+
+# ============================================================================
+# Production Environment Variables
+# ============================================================================
+# IMPORTANT: Set these in EasyPanel's Environment section for security
+# 
+# Required Variables:
+#   - PORT: Server port (usually set automatically by EasyPanel)
+#   - NODE_ENV: Set to "production" (already in package.json start script)
+#   - SESSION_SECRET: Strong random string for JWT signing (REQUIRED in production)
+#
+# Optional Variables:
+#   - DATABASE_URL: PostgreSQL connection string (if using database)
+#   - LOG_LEVEL: Logging level (default: info)
+#   - TRUST_PROXY: Set to "true" if behind a reverse proxy
+#
+# Security Notes:
+#   - Never commit SESSION_SECRET to version control
+#   - Use a strong, random secret (minimum 32 characters)
+#   - Generate with: openssl rand -base64 32
+# ============================================================================
 
