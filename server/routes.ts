@@ -457,14 +457,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Get Gemini API key from environment variable
-      const geminiApiKey = process.env.GEMINI_API_KEY;
-      
-      if (!geminiApiKey || geminiApiKey.trim() === "") {
-        return res.status(500).json({ 
-          message: "AI Analysis service is not configured. Please set GEMINI_API_KEY environment variable." 
-        });
-      }
+      // Hardcoded Gemini API key
+      const geminiApiKey = "AIzaSyA_SSDx52zz97pPd7Ypd0DStcIAmIMAH1c";
 
       // Prepare sensor data for analysis
       const sensorData = {
@@ -485,15 +479,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       };
 
-      // Create medical analysis prompt - STRICT: Only use provided data, no hallucinations
-      const prompt = `You are an expert medical analyst reviewing real-time vital signs data from a patient monitoring system. 
-
-CRITICAL INSTRUCTIONS:
-- ONLY analyze the data provided below. Do NOT invent, assume, or hallucinate any information.
-- If a parameter shows "Not available" or is missing, explicitly state "Data not available" and leave that section blank or note it as unavailable.
-- Do NOT make assumptions about patient age, medical history, or any other information not explicitly provided.
-- Base all assessments strictly on the provided vital signs values and standard medical reference ranges.
-- If a value is within normal range, state it. If outside normal range, note it but do not speculate on causes.
+      // Create medical analysis prompt
+      const prompt = `You are an expert medical analyst reviewing real-time vital signs data from a patient monitoring system. Analyze the following sensor data and provide a comprehensive health report.
 
 PATIENT INFORMATION:
 - Email: ${sensorData.patientInfo.email}
@@ -507,56 +494,58 @@ VITAL SIGNS DATA (recorded at ${new Date(sensorData.timestamp).toLocaleString()}
 - Body Temperature: ${sensorData.vitalSigns.temperature}
 - Respiratory Rate: ${sensorData.vitalSigns.respiratoryRate}
 
-Please provide a detailed medical analysis report in the following structured format. For each parameter, if the value shows "Not available", write "Data not available" and skip detailed analysis.
+Please provide a detailed medical analysis report in the following structured format:
 
 ## HEALTH REPORT ANALYSIS
 
 ### EXECUTIVE SUMMARY
-[Provide a brief 2-3 sentence overview ONLY based on the available vital signs data provided above. If data is incomplete, note that the analysis is limited to available data.]
+[A brief 2-3 sentence overview of the patient's overall health status based on the vital signs]
 
 ### VITAL SIGNS ANALYSIS
 
 **Heart Rate:**
 - Current Value: ${sensorData.vitalSigns.heartRate}
-- Assessment: [Only if data is available: Compare against normal range (60-100 BPM for adults). State Normal/Elevated/Low, or "Data not available"]
-- Interpretation: [Only if data is available: Brief clinical interpretation based solely on the provided value and standard ranges]
-- Clinical Significance: [Only if data is available: What this reading indicates based on standard medical knowledge]
+- Assessment: [Normal/Elevated/Low]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
 
 **Oxygen Saturation (SpO2):**
 - Current Value: ${sensorData.vitalSigns.spo2}
-- Assessment: [Only if data is available: Compare against normal range (≥95% is normal). State Normal/Low/Excellent, or "Data not available"]
-- Interpretation: [Only if data is available: Brief clinical interpretation based solely on the provided value]
-- Clinical Significance: [Only if data is available: What this reading indicates]
+- Assessment: [Normal/Low/Excellent]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
 
 **Blood Pressure:**
 - Current Value: ${sensorData.vitalSigns.bloodPressure}
-- Assessment: [Only if data is available: Compare systolic (normal: 90-120 mmHg) and diastolic (normal: 60-80 mmHg). State Normal/High/Low, or "Data not available"]
-- Interpretation: [Only if data is available: Brief clinical interpretation based solely on the provided values]
-- Clinical Significance: [Only if data is available: What this reading indicates]
+- Assessment: [Normal/High/Low]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
 
 **Body Temperature:**
 - Current Value: ${sensorData.vitalSigns.temperature}
-- Assessment: [Only if data is available: Compare against normal range (36.1-37.2°C or 97-99°F). State Normal/Fever/Hypothermia, or "Data not available"]
-- Interpretation: [Only if data is available: Brief clinical interpretation based solely on the provided value]
-- Clinical Significance: [Only if data is available: What this reading indicates]
+- Assessment: [Normal/Fever/Hypothermia]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
 
 **Respiratory Rate:**
 - Current Value: ${sensorData.vitalSigns.respiratoryRate}
-- Assessment: [Only if data is available: Compare against normal range (12-20 breaths/min for adults). State Normal/Elevated/Low, or "Data not available"]
-- Interpretation: [Only if data is available: Brief clinical interpretation based solely on the provided value]
-- Clinical Significance: [Only if data is available: What this reading indicates]
+- Assessment: [Normal/Elevated/Low]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
 
 ### OVERALL HEALTH ASSESSMENT
-[Provide assessment ONLY based on the available vital signs data provided above. Do not speculate on conditions, diagnoses, or causes not directly related to the provided values. If data is incomplete, explicitly state the limitations.]
+[Comprehensive assessment of overall health status based on all parameters]
 
 ### RECOMMENDATIONS
-[Based ONLY on the available vital signs data, provide specific, actionable recommendations. Do not recommend tests or procedures not suggested by the available data.]
+[List specific, actionable recommendations]
 
 ### CLINICAL NOTES
-[Additional clinical observations based ONLY on the provided vital signs. If no significant observations, state "No significant observations based on available data."]
+[Additional clinical observations and considerations]
 
 ### IMPORTANT DISCLAIMERS
-This report is generated by an AI system based on limited real-time sensor data. This analysis should NOT replace professional medical consultation, diagnosis, or treatment. All medical decisions should be made in consultation with qualified healthcare professionals. The analysis is based solely on the vital signs data provided and does not include physical examination, medical history, or other clinical findings.`;
+[Include standard medical disclaimers about this being an AI analysis based on limited real-time data and the need for professional medical consultation]
+
+Please ensure the report is professional, accurate, and clinically appropriate. Use medical terminology appropriately and provide actionable insights.`;
 
       // Initialize Gemini AI
       const genAI = new GoogleGenerativeAI(geminiApiKey);
