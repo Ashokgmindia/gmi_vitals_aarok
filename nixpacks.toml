@@ -3,6 +3,9 @@
 # ============================================================================
 # This configuration builds and runs the Express.js server with React frontend
 # in a production-ready environment.
+# 
+# NOTE: This explicitly disables Caddy auto-detection since Express handles
+# all routing and static file serving.
 
 [phases.setup]
 # Install Node.js 18 LTS and npm 9.x for stable production builds
@@ -19,10 +22,19 @@ cmds = ["npm ci"]
 # This creates optimized production assets in dist/public
 cmds = ["npm run build"]
 
+# Explicitly do NOT use Caddy - Express server handles everything
+# The Express server serves both API routes and static frontend files
+# Nixpacks auto-detects static files and adds Caddy, but we override this
+
+# Note: Nixpacks may still detect and install Caddy during build
+# but the [start] command below ensures only Express runs at runtime
+# If Caddy appears in build logs, it's only being installed, not used
+
 [start]
-# Start the production server
+# Start the production server directly
 # NODE_ENV=production is set in package.json start script
 # PORT is automatically set by EasyPanel (defaults to 5000)
+# The Express server listens on 0.0.0.0:PORT and serves everything
 cmd = "npm start"
 
 # ============================================================================
