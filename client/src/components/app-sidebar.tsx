@@ -1,4 +1,4 @@
-import { Activity, LayoutDashboard, LineChart, User, Settings, LogOut } from "lucide-react";
+import { Activity, LayoutDashboard, LineChart, User, Settings, LogOut, Brain } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -30,6 +30,12 @@ const menuItems = [
     url: "/records",
     icon: LineChart,
     testId: "link-records",
+  },
+  {
+    title: "AI Analysis",
+    url: "/ai-analysis",
+    icon: Brain,
+    testId: "link-ai-analysis",
   },
   {
     title: "Profile",

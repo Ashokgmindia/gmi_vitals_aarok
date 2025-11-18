@@ -17,6 +17,7 @@ import ProfilePage from "@/pages/profile";
 import RecordsPage from "@/pages/records";
 import AdminPage from "@/pages/admin";
 import SettingsPage from "@/pages/settings";
+import AIAnalysisPage from "@/pages/ai-analysis";
 
 function ThemeToggle() {
   const toggleTheme = () => {
@@ -136,6 +137,16 @@ function Router() {
         {authToken ? (
           <AuthenticatedLayout>
             <RecordsPage />
+          </AuthenticatedLayout>
+        ) : (
+          <Redirect to="/login" />
+        )}
+      </Route>
+      
+      <Route path="/ai-analysis">
+        {authToken ? (
+          <AuthenticatedLayout>
+            <AIAnalysisPage />
           </AuthenticatedLayout>
         ) : (
           <Redirect to="/login" />

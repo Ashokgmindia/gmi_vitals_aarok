@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertUserSchema, loginSchema, insertEcgDataSchema, insertPatientRecordSchema, type InsertEcgData } from "@shared/schema";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const JWT_SECRET = process.env.SESSION_SECRET || "your-secret-key-change-in-production";
 const SALT_ROUNDS = 10;
@@ -427,6 +428,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(allRecords);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  // AI Analysis endpoint
+  app.post("/api/ai-analysis", authenticateToken, async (req: AuthRequest, res: Response) => {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      // Check if user has access (patients can only access their own, admins can access any)
+      const targetUserId = req.body.userId || userId;
+      if (targetUserId !== userId && req.userRole !== "admin") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Fetch latest sensor data
+      const latestData = await storage.getLatestEcgDataByUserId(targetUserId);
+      if (!latestData) {
+        return res.status(404).json({ message: "No sensor data found. Please ensure vital signs are being monitored." });
+      }
+
+      // Get user info for context
+      const user = await storage.getUser(targetUserId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check for Gemini API key
+      const geminiApiKey = process.env.GEMINI_API_KEY;
+      if (!geminiApiKey) {
+        return res.status(500).json({ 
+          message: "AI Analysis service is not configured. Please contact your administrator." 
+        });
+      }
+
+      // Prepare sensor data for analysis
+      const sensorData = {
+        timestamp: latestData.timestamp,
+        vitalSigns: {
+          heartRate: latestData.heartRate ? `${latestData.heartRate} BPM` : "Not available",
+          spo2: latestData.spo2 ? `${latestData.spo2}%` : "Not available",
+          bloodPressure: latestData.systolicBP && latestData.diastolicBP 
+            ? `${latestData.systolicBP}/${latestData.diastolicBP} mmHg` 
+            : "Not available",
+          temperature: latestData.temperature ? `${latestData.temperature.toFixed(1)}°C` : "Not available",
+          respiratoryRate: latestData.respiratoryRate ? `${latestData.respiratoryRate} breaths/min` : "Not available",
+        },
+        patientInfo: {
+          email: user.email || "Patient",
+          gender: user.gender || "Not specified",
+          bloodGroup: user.customBloodGroup || user.bloodGroup || "Not specified",
+        }
+      };
+
+      // Create medical analysis prompt
+      const prompt = `You are an expert medical analyst reviewing real-time vital signs data from a patient monitoring system. Analyze the following sensor data and provide a comprehensive health report.
+
+PATIENT INFORMATION:
+- Email: ${sensorData.patientInfo.email}
+- Gender: ${sensorData.patientInfo.gender}
+- Blood Group: ${sensorData.patientInfo.bloodGroup}
+
+VITAL SIGNS DATA (recorded at ${new Date(sensorData.timestamp).toLocaleString()}):
+- Heart Rate: ${sensorData.vitalSigns.heartRate}
+- SpO2 (Oxygen Saturation): ${sensorData.vitalSigns.spo2}
+- Blood Pressure: ${sensorData.vitalSigns.bloodPressure}
+- Body Temperature: ${sensorData.vitalSigns.temperature}
+- Respiratory Rate: ${sensorData.vitalSigns.respiratoryRate}
+
+Please provide a detailed medical analysis report in the following structured format:
+
+## HEALTH REPORT ANALYSIS
+
+### EXECUTIVE SUMMARY
+[A brief 2-3 sentence overview of the patient's overall health status based on the vital signs]
+
+### VITAL SIGNS ANALYSIS
+
+**Heart Rate:**
+- Current Value: ${sensorData.vitalSigns.heartRate}
+- Assessment: [Normal/Elevated/Low]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
+
+**Oxygen Saturation (SpO2):**
+- Current Value: ${sensorData.vitalSigns.spo2}
+- Assessment: [Normal/Low/Excellent]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
+
+**Blood Pressure:**
+- Current Value: ${sensorData.vitalSigns.bloodPressure}
+- Assessment: [Normal/High/Low]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
+
+**Body Temperature:**
+- Current Value: ${sensorData.vitalSigns.temperature}
+- Assessment: [Normal/Fever/Hypothermia]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
+
+**Respiratory Rate:**
+- Current Value: ${sensorData.vitalSigns.respiratoryRate}
+- Assessment: [Normal/Elevated/Low]
+- Interpretation: [Detailed explanation]
+- Clinical Significance: [What this indicates]
+
+### OVERALL HEALTH ASSESSMENT
+[Comprehensive assessment of overall health status based on all parameters]
+
+### RECOMMENDATIONS
+[List specific, actionable recommendations]
+
+### CLINICAL NOTES
+[Additional clinical observations and considerations]
+
+### IMPORTANT DISCLAIMERS
+[Include standard medical disclaimers about this being an AI analysis based on limited real-time data and the need for professional medical consultation]
+
+Please ensure the report is professional, accurate, and clinically appropriate. Use medical terminology appropriately and provide actionable insights.`;
+
+      // Initialize Gemini AI
+      const genAI = new GoogleGenerativeAI(geminiApiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+      // Generate analysis
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const healthReport = response.text();
+
+      // Return the health report
+      res.json({
+        success: true,
+        report: healthReport,
+        sensorData: {
+          timestamp: latestData.timestamp,
+          vitalSigns: sensorData.vitalSigns,
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error("Error generating AI analysis:", error);
+      res.status(500).json({ 
+        message: error.message || "Failed to generate AI analysis",
+        error: process.env.NODE_ENV === "development" ? error.stack : undefined
+      });
     }
   });
 
