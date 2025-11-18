@@ -554,11 +554,37 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
 
       // Initialize Gemini AI
       const genAI = new GoogleGenerativeAI(geminiApiKey);
-      // Using gemini-2.5-flash for faster and improved responses
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-      // Generate analysis
-      const result = await model.generateContent(prompt);
+      
+      // Try gemini-2.5-flash first, fallback to gemini-1.5-flash if not available
+      const modelNames = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+      let model;
+      let result;
+      let lastError: any = null;
+      
+      for (const modelName of modelNames) {
+        try {
+          console.log(`Attempting to use model: ${modelName}`);
+          model = genAI.getGenerativeModel({ model: modelName });
+          result = await model.generateContent(prompt);
+          console.log(`Successfully using model: ${modelName}`);
+          break; // Success, exit loop
+        } catch (modelError: any) {
+          console.error(`Failed to use model ${modelName}:`, {
+            message: modelError.message,
+            status: modelError.status,
+            statusText: modelError.statusText,
+          });
+          lastError = modelError;
+          // Continue to next model
+        }
+      }
+      
+      // If all models failed, throw the last error
+      if (!result) {
+        console.error("All model attempts failed. Last error:", lastError);
+        throw lastError || new Error("Failed to generate content with any available model");
+      }
+      
       const response = await result.response;
       const healthReport = response.text();
 
@@ -574,20 +600,28 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
       });
     } catch (error: any) {
       console.error("Error generating AI analysis:", error);
+      console.error("Full error object:", JSON.stringify(error, null, 2));
       
       // Provide better error messages for common issues
       let errorMessage = "Failed to generate AI analysis";
-      if (error.message?.includes("API key")) {
+      const errorStr = error.message?.toString().toLowerCase() || "";
+      
+      if (errorStr.includes("api key") || errorStr.includes("401") || errorStr.includes("403")) {
         errorMessage = "Invalid or missing Gemini API key. Please check your GEMINI_API_KEY environment variable.";
-      } else if (error.message?.includes("model") || error.message?.includes("404")) {
-        errorMessage = "Gemini model error. Please ensure you have access to the Gemini API.";
+      } else if (errorStr.includes("model") || errorStr.includes("404") || errorStr.includes("not found")) {
+        errorMessage = `Model error: The model "gemini-2.5-flash" may not be available. Error: ${error.message || "Unknown error"}`;
       } else if (error.message) {
         errorMessage = error.message;
       }
       
       res.status(500).json({ 
         message: errorMessage,
-        error: process.env.NODE_ENV === "development" ? error.stack : undefined
+        details: process.env.NODE_ENV === "development" ? {
+          error: error.message,
+          status: error.status,
+          statusText: error.statusText,
+          stack: error.stack
+        } : undefined
       });
     }
   });
