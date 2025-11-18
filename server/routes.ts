@@ -457,15 +457,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // WARNING: Hardcoded API key - This is a security risk in production!
-      // In production, use environment variables instead
-      const geminiApiKey = process.env.GEMINI_API_KEY || "AIzaSyA6QbVyb0TfiKq6EYGmnY3-bWYvkeiYt_0";
-      
-      if (!geminiApiKey || geminiApiKey.trim() === "") {
-        return res.status(500).json({ 
-          message: "AI Analysis service is not configured. Please set GEMINI_API_KEY environment variable." 
-        });
-      }
+      // Hardcoded Gemini API key
+      const geminiApiKey = "AIzaSyA_SSDx52zz97pPd7Ypd0DStcIAmIMAH1c";
 
       // Prepare sensor data for analysis
       const sensorData = {
@@ -586,8 +579,10 @@ Please ensure the report is professional, accurate, and clinically appropriate. 
       
       if (errorStr.includes("api key") || errorStr.includes("401") || errorStr.includes("403")) {
         errorMessage = "Invalid or missing Gemini API key. Please check your GEMINI_API_KEY environment variable.";
+      } else if (errorStr.includes("503") || errorStr.includes("overloaded") || errorStr.includes("service unavailable")) {
+        errorMessage = "The Gemini AI service is currently overloaded. Please try again in a few moments.";
       } else if (errorStr.includes("model") || errorStr.includes("404") || errorStr.includes("not found")) {
-        errorMessage = `Model error: The model "gemini-2.5-flash" may not be available. Error: ${error.message || "Unknown error"}`;
+        errorMessage = `Model error: The model "gemini-2.5-pro" may not be available or accessible. Error: ${error.message || "Unknown error"}`;
       } else if (error.message) {
         errorMessage = error.message;
       }
