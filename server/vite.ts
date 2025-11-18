@@ -3,7 +3,6 @@ import fs from "fs";
 import path from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
-import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 
 const viteLogger = createLogger();
@@ -21,6 +20,8 @@ export function log(message: string, source = "express", level: "info" | "error"
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // Don't import viteConfig to avoid bundling issues with import.meta.dirname
+  // Let Vite read the config file directly instead
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -28,8 +29,9 @@ export async function setupVite(app: Express, server: Server) {
   };
 
   const vite = await createViteServer({
-    ...viteConfig,
-    configFile: false,
+    // Let Vite read vite.config.ts directly instead of importing it
+    // This avoids bundling issues with import.meta.dirname
+    configFile: path.resolve(process.cwd(), "vite.config.ts"),
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
@@ -46,9 +48,9 @@ export async function setupVite(app: Express, server: Server) {
     const url = req.originalUrl;
 
     try {
+      // Use process.cwd() for reliable path resolution
       const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "..",
+        process.cwd(),
         "client",
         "index.html",
       );
